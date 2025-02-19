@@ -4,13 +4,19 @@ from codecarbon import track_emissions
 from datasets import load_dataset
 from transformers import (
     AutoModelForCausalLM,
+    AutoModelForMaskedLM,
     AutoTokenizer,
     DataCollatorForLanguageModeling,
     Trainer,
     TrainingArguments,
 )
 
-BASE_MODEL = "gpt2"  # TODO: try "distilgpt2" for a smaller version
+
+# choices:
+# - distilbert-base-uncased
+# - distilgpt2, gpt2
+#
+BASE_MODEL = "distilbert-base-uncased"  # distilgpt2, gpt2
 DATASET = "circl/vulnerability-dataset"
 MODEL_PATH = "./vulnerability"
 
@@ -55,14 +61,18 @@ training_args = TrainingArguments(
 )
 
 
-@track_emissions(project_name="VulnTrain")
+@track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train():
+    print(f"Base model {BASE_MODEL}")
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
 
-    # problem with missing pading token...
-    tokenizer.pad_token = tokenizer.eos_token
+    if "distilbert" in BASE_MODEL:
+        model = AutoModelForMaskedLM.from_pretrained(BASE_MODEL)
+    else:
+        # problem with missing pading token...
+        tokenizer.pad_token = tokenizer.eos_token
+        model = AutoModelForCausalLM.from_pretrained(BASE_MODEL)
 
-    model = AutoModelForCausalLM.from_pretrained(BASE_MODEL)
     model.to(device)
 
     datasets = get_datasets(tokenizer)
