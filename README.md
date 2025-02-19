@@ -5,6 +5,12 @@ Generate datasets amd models based on vulnerabilities descriptions from Vulnerab
 Uses data from the ``vulnerability-lookup:meta`` container such as vulnrichment and FKIE.
 
 
+## Datasets
+
+
+https://huggingface.co/datasets/circl/vulnerability-dataset
+
+
 ## Usage
 
 ### Generate datasets
