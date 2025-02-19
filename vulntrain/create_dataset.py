@@ -97,7 +97,7 @@ class VulnExtractor:
 
             # vulnrichement
             vuln_cpes = []
-            if vulnrichment := vuln["vulnerability-lookup:meta"].get(
+            if vulnrichment := vuln.get("vulnerability-lookup:meta", {}).get(
                 "vulnrichment", False
             ):
                 containers = json.loads(vulnrichment["containers"])
@@ -117,7 +117,7 @@ class VulnExtractor:
                             vuln_cpes.extend(affected["cpes"])
 
             # fkie
-            if fkie := vuln["vulnerability-lookup:meta"].get("fkie_nvd", False):
+            if fkie := vuln.get("vulnerability-lookup:meta", {}).get("fkie_nvd", False):
                 if "configurations" in fkie:
                     configurations = json.loads(fkie["configurations"])
                     for config in configurations:
@@ -166,7 +166,7 @@ def main():
 
     print(dataset_dict)
     # dataset_dict.push_to_hub("cedricbonhomme/vulnerability-descriptions")
-    dataset_dict.push_to_hub("circl/vulnerability-dataset")
+    dataset_dict.push_to_hub("CIRCL/vulnerability-dataset")
 
 
 if __name__ == "__main__":

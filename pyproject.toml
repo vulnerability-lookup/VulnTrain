@@ -16,6 +16,17 @@ readme = "README.md"
 dynamic = ["classifiers"]
 
 requires-python = ">=3.10,<4.0"
+dependencies = [
+    "nltk (>=3.9.1)",
+    "pandas (>=2.2.3)",
+    "datasets (>=3.3.1)",
+    "valkey (>=6.1.0)",
+    "torch (>=2.6.0)",
+    "transformers[torch] (>=4.49.0,<5.0.0)",
+    "evaluate (>=0.4.3,<0.5.0)",
+    "codecarbon (>=2.8.3,<3.0.0)",
+    "scikit-learn (>=1.6.1,<2.0.0)"
+]
 
 
 [project.urls]
@@ -25,7 +36,7 @@ Repository = "https://github.com/vulnerability-lookup/VulnTrain"
 
 [project.scripts]
 vulntrain-create-dataset = "vulntrain.create_dataset:main"
-# vulntrain-train-dataset = "vulntrain.train:main"
+vulntrain-train-dataset = "vulntrain.summarize:main"
 
 
 [tool.poetry]
@@ -47,8 +58,3 @@ include = [
     "COPYING",
 ]
 
-[tool.poetry.dependencies]
-nltk = "^3.9.1"
-pandas = "^2.2.3"
-datasets = "^3.3.1"
-valkey = "^6.1.0"
