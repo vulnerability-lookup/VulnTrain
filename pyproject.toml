@@ -19,7 +19,7 @@ requires-python = ">=3.10,<4.0"
 
 [project.scripts]
 vulntrain-create-dataset = "vulntrain.create_dataset:main"
-vulntrain-train-dataset = "vulntrain.train:main"
+# vulntrain-train-dataset = "vulntrain.train:main"
 
 
 [tool.poetry]
