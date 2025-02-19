@@ -1,0 +1,48 @@
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+
+[project]
+name = "VulnTrain"
+version = "0.1.0"
+description = "Generate datasets amd models based on vulnerabilities descriptions from Vulnerability-Lookup."
+authors = [
+    {name = "Cédric Bonhomme",email = "cedric.bonhomme@circl.lu"}
+]
+license = "GPL-3.0-or-later"
+readme = "README.md"
+
+dynamic = ["classifiers"]
+
+requires-python = ">=3.10,<4.0"
+
+[project.scripts]
+vulntrain-create-dataset = "vulntrain.create_dataset:main"
+vulntrain-train-dataset = "vulntrain.train:main"
+
+
+[tool.poetry]
+requires-poetry = ">=2.0"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Security",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)"
+]
+include = [
+    "README.md",
+    "COPYING",
+]
+
+[tool.poetry.dependencies]
+nltk = "^3.9.1"
+pandas = "^2.2.3"
+datasets = "^3.3.1"
+valkey = "^6.1.0"
