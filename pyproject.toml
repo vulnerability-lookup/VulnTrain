@@ -17,6 +17,12 @@ dynamic = ["classifiers"]
 
 requires-python = ">=3.10,<4.0"
 
+
+[project.urls]
+Homepage = "https://github.com/vulnerability-lookup/VulnTrain"
+Repository = "https://github.com/vulnerability-lookup/VulnTrain"
+
+
 [project.scripts]
 vulntrain-create-dataset = "vulntrain.create_dataset:main"
 # vulntrain-train-dataset = "vulntrain.train:main"
