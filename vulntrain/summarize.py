@@ -12,11 +12,6 @@ from transformers import (  # type: ignore[import-untyped]
 )
 
 
-# choices:
-# - distilbert-base-uncased
-# - distilgpt2, gpt2
-#
-BASE_MODEL = "gpt2"  # distilgpt2, gpt2
 DATASET = "circl/vulnerability-dataset"
 MODEL_PATH = "./vulnerability"
 
@@ -62,16 +57,18 @@ training_args = TrainingArguments(
 
 
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
-def train():
-    print(f"Base model {BASE_MODEL}")
-    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
+def train(base_model, model_name):
+    print(f"Base model {base_model}")
+    print(f"Destination model: {model_name}")
 
-    if "distilbert" in BASE_MODEL:
-        model = AutoModelForMaskedLM.from_pretrained(BASE_MODEL)
+    tokenizer = AutoTokenizer.from_pretrained(base_model)
+
+    if "distilbert" in base_model:
+        model = AutoModelForMaskedLM.from_pretrained(base_model)
     else:
         # problem with missing pading token...
         tokenizer.pad_token = tokenizer.eos_token
-        model = AutoModelForCausalLM.from_pretrained(BASE_MODEL)
+        model = AutoModelForCausalLM.from_pretrained(base_model)
 
     model.to(device)
 
@@ -92,15 +89,30 @@ def train():
         model.save_pretrained(MODEL_PATH)
         tokenizer.save_pretrained(MODEL_PATH)
 
-    trainer.push_to_hub("CIRCL/vulnerability")
+    trainer.push_to_hub(model_name)
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="Train a vulnerability text generation model"
     )
+    parser.add_argument(
+        "--base-model",
+        dest="base_model",
+        default="gpt2",
+        choices=["gpt2", "distilgpt2", "meta-llama/Llama-3.3-70B-Instruct", "distilbert-base-uncased"],
+        help="Base model to use.",
+    )
+    parser.add_argument(
+        "--model-name",
+        dest="model_name",
+        required=True,
+        help="Name of the model to upload.",
+    )
+
     args = parser.parse_args()
-    train()
+
+    train(args.base_model, args.model_name)
 
 
 if __name__ == "__main__":
