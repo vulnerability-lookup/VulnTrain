@@ -120,3 +120,34 @@ Map: 100%|███████████████████████�
 #### Training for classification
 
 tf-idf on the vulnerability descriptions.
+
+
+
+### Validation
+
+It is possible to send prompts to a model trained for text generation (descriptions of vulnerabilities).
+
+```bash
+$ vulntrain-validate-text-generation --help
+usage: vulntrain-validate-text-generation [-h] [--model MODEL] [--prompt PROMPT]
+
+Validate a text generation model for vulnerabilities.
+
+options:
+  -h, --help       show this help message and exit
+  --model MODEL    The model to use.
+  --prompt PROMPT  The prompt for the generator.
+```
+
+
+
+## License
+
+[VulnTrain](https://github.com/vulnerability-lookup/VulnTrain) is licensed under
+[GNU General Public License version 3](https://www.gnu.org/licenses/gpl-3.0.html)
+
+~~~
+Copyright (c) 2025 Computer Incident Response Center Luxembourg (CIRCL)
+Copyright (C) 2025 Cédric Bonhomme - https://github.com/cedricbonhomme
+~~~
+
