@@ -10,7 +10,7 @@ import json
 from typing import Any, Generator
 
 import valkey
-from datasets import Dataset, DatasetDict
+from datasets import Dataset, DatasetDict  # type: ignore[import-untyped]
 
 
 class VulnExtractor:
@@ -198,7 +198,6 @@ def main():
 
     print(dataset_dict)
     if args.upload:
-        # dataset_dict.push_to_hub("CIRCL/vulnerability-dataset")
         dataset_dict.push_to_hub(args.repo_id, commit_message=args.commit_message)
 
 

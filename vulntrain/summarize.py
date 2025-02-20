@@ -12,7 +12,7 @@ from transformers import (  # type: ignore[import-untyped]
 )
 
 
-DATASET = "circl/vulnerability-dataset"
+DATASET = "CIRCL/vulnerability"
 MODEL_PATH = "./vulnerability"
 
 if torch.cuda.is_available():
@@ -88,6 +88,8 @@ def train(base_model, model_name):
     finally:
         model.save_pretrained(MODEL_PATH)
         tokenizer.save_pretrained(MODEL_PATH)
+
+    
 
     trainer.push_to_hub(model_name)
 

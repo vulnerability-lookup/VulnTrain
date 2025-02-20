@@ -9,7 +9,7 @@ Uses data from the ``vulnerability-lookup:meta`` container such as vulnrichment 
 
 Various datasets generated are available on HuggingFace:
 
-https://huggingface.co/datasets/circl/vulnerability-dataset
+https://huggingface.co/datasets/circl/vulnerability
 
 
 ## Usage
@@ -62,7 +62,7 @@ For now we are using distilbert-base-uncased (AutoModelForMaskedLM) or gpt2 (Aut
 The goal is to generate text.
 
 ```bash
-$ vulntrain-train-dataset 
+$ vulntrain-train-dataset --base-model gpt2 --model-name CIRCL/vulnerability
 Using CUDA (Nvidia GPU).
 [codecarbon WARNING @ 13:28:13] Multiple instances of codecarbon are allowed to run at the same time.
 [codecarbon INFO @ 13:28:13] [setup] RAM Tracking...
