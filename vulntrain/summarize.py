@@ -92,7 +92,7 @@ def train():
         model.save_pretrained(MODEL_PATH)
         tokenizer.save_pretrained(MODEL_PATH)
 
-    trainer.push_to_hub("CIRCL/vuln-model-test")
+    trainer.push_to_hub("CIRCL/vulnerability")
 
 
 def main():

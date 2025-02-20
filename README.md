@@ -63,57 +63,30 @@ The goal is to generate text.
 
 ```bash
 $ vulntrain-train-dataset 
-Using CPU.
-[codecarbon WARNING @ 07:45:34] Multiple instances of codecarbon are allowed to run at the same time.
-[codecarbon INFO @ 07:45:34] [setup] RAM Tracking...
-[codecarbon INFO @ 07:45:34] [setup] CPU Tracking...
-[codecarbon WARNING @ 07:45:34] No CPU tracking mode found. Falling back on CPU constant mode. 
+Using CUDA (Nvidia GPU).
+[codecarbon WARNING @ 13:28:13] Multiple instances of codecarbon are allowed to run at the same time.
+[codecarbon INFO @ 13:28:13] [setup] RAM Tracking...
+[codecarbon INFO @ 13:28:13] [setup] CPU Tracking...
+[codecarbon WARNING @ 13:28:13] No CPU tracking mode found. Falling back on CPU constant mode. 
  Linux OS detected: Please ensure RAPL files exist at \sys\class\powercap\intel-rapl to measure CPU
 
-[codecarbon WARNING @ 07:45:36] We saw that you have a 13th Gen Intel(R) Core(TM) i7-1365U but we don't know it. Please contact us.
-[codecarbon INFO @ 07:45:36] CPU Model on constant consumption mode: 13th Gen Intel(R) Core(TM) i7-1365U
-[codecarbon INFO @ 07:45:36] [setup] GPU Tracking...
-[codecarbon INFO @ 07:45:36] No GPU found.
-[codecarbon INFO @ 07:45:36] >>> Tracker's metadata:
-[codecarbon INFO @ 07:45:36]   Platform system: Linux-6.1.0-31-amd64-x86_64-with-glibc2.36
-[codecarbon INFO @ 07:45:36]   Python version: 3.13.0
-[codecarbon INFO @ 07:45:36]   CodeCarbon version: 2.8.3
-[codecarbon INFO @ 07:45:36]   Available RAM : 30.937 GB
-[codecarbon INFO @ 07:45:36]   CPU count: 12
-[codecarbon INFO @ 07:45:36]   CPU model: 13th Gen Intel(R) Core(TM) i7-1365U
-[codecarbon INFO @ 07:45:36]   GPU count: None
-[codecarbon INFO @ 07:45:36]   GPU model: None
-[codecarbon INFO @ 07:45:39] Saving emissions data to file /home/cedric/git/VulnTrain/emissions.csv
-Base model distilbert-base-uncased
-README.md: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████| 503/503 [00:00<00:00, 5.96MB/s]
-train-00000-of-00001.parquet: 100%|█████████████████████████████████████████████████████████████████████████████| 1.48M/1.48M [00:00<00:00, 6.92MB/s]
-test-00000-of-00001.parquet: 100%|█████████████████████████████████████████████████████████████████████████████████| 170k/170k [00:00<00:00, 488kB/s]
-Generating train split: 100%|█████████████████████████████████████████████████████████████████████████| 8999/8999 [00:00<00:00, 277013.99 examples/s]
-Generating test split: 100%|██████████████████████████████████████████████████████████████████████████| 1000/1000 [00:00<00:00, 205250.99 examples/s]
-Map: 100%|██████████████████████████████████████████████████████████████████████████████████████████████| 8999/8999 [00:01<00:00, 8233.47 examples/s]
-[codecarbon INFO @ 07:45:47] [setup] RAM Tracking...
-[codecarbon INFO @ 07:45:47] [setup] CPU Tracking...
-[codecarbon WARNING @ 07:45:47] No CPU tracking mode found. Falling back on CPU constant mode. 
- Linux OS detected: Please ensure RAPL files exist at \sys\class\powercap\intel-rapl to measure CPU
-
-[codecarbon WARNING @ 07:45:48] We saw that you have a 13th Gen Intel(R) Core(TM) i7-1365U but we don't know it. Please contact us.
-[codecarbon INFO @ 07:45:48] CPU Model on constant consumption mode: 13th Gen Intel(R) Core(TM) i7-1365U
-[codecarbon INFO @ 07:45:48] [setup] GPU Tracking...
-[codecarbon INFO @ 07:45:48] No GPU found.
-[codecarbon INFO @ 07:45:48] >>> Tracker's metadata:
-[codecarbon INFO @ 07:45:48]   Platform system: Linux-6.1.0-31-amd64-x86_64-with-glibc2.36
-[codecarbon INFO @ 07:45:48]   Python version: 3.13.0
-[codecarbon INFO @ 07:45:48]   CodeCarbon version: 2.8.3
-[codecarbon INFO @ 07:45:48]   Available RAM : 30.937 GB
-[codecarbon INFO @ 07:45:48]   CPU count: 12
-[codecarbon INFO @ 07:45:48]   CPU model: 13th Gen Intel(R) Core(TM) i7-1365U
-[codecarbon INFO @ 07:45:48]   GPU count: None
-[codecarbon INFO @ 07:45:48]   GPU model: None
-[codecarbon INFO @ 07:45:51] Saving emissions data to file /home/cedric/git/VulnTrain/vulnerability/emissions.csv
-  0%|                                                                                                                       | 0/2700 [00:00<?, ?it/s][codecarbon INFO @ 07:45:54] Energy consumed for RAM : 0.000048 kWh. RAM Power : 11.601505279541016 W
-[codecarbon INFO @ 07:45:54] Energy consumed for all CPUs : 0.000177 kWh. Total CPU Power : 42.5 W
-[codecarbon INFO @ 07:45:54] 0.000225 kWh of electricity used since the beginning.
-  0%|                                                                                                             | 1/2700 [00:07<5:45:36,  7.68s/it]
+[codecarbon WARNING @ 13:28:14] We saw that you have a AMD EPYC 9124 16-Core Processor but we don't know it. Please contact us.
+[codecarbon INFO @ 13:28:14] CPU Model on constant consumption mode: AMD EPYC 9124 16-Core Processor
+[codecarbon INFO @ 13:28:14] [setup] GPU Tracking...
+[codecarbon INFO @ 13:28:14] Tracking Nvidia GPU via pynvml
+[codecarbon INFO @ 13:28:14] >>> Tracker's metadata:
+[codecarbon INFO @ 13:28:14]   Platform system: Linux-6.8.0-48-generic-x86_64-with-glibc2.39
+[codecarbon INFO @ 13:28:14]   Python version: 3.12.3
+[codecarbon INFO @ 13:28:14]   CodeCarbon version: 2.8.3
+[codecarbon INFO @ 13:28:14]   Available RAM : 251.586 GB
+[codecarbon INFO @ 13:28:14]   CPU count: 64
+[codecarbon INFO @ 13:28:14]   CPU model: AMD EPYC 9124 16-Core Processor
+[codecarbon INFO @ 13:28:14]   GPU count: 2
+[codecarbon INFO @ 13:28:14]   GPU model: 2 x NVIDIA L40S
+[codecarbon INFO @ 13:28:18] Saving emissions data to file /home/cedric/VulnTrain/emissions.csv                                    | 1/2700 [00:07<5:45:36,  7.68s/it]
+...
+...
+...
 ```
 
 
