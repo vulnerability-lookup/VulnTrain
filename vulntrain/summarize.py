@@ -16,8 +16,8 @@ from transformers import (
 # - distilbert-base-uncased
 # - distilgpt2, gpt2
 #
-BASE_MODEL = "distilbert-base-uncased"  # distilgpt2, gpt2
-DATASET = "circl/vulnerability-dataset-10k"
+BASE_MODEL = "gpt2"  # distilgpt2, gpt2
+DATASET = "circl/vulnerability-dataset"
 MODEL_PATH = "./vulnerability"
 
 if torch.cuda.is_available():
@@ -94,7 +94,7 @@ def train():
         model.save_pretrained(MODEL_PATH)
         tokenizer.save_pretrained(MODEL_PATH)
 
-    trainer.push_to_hub("cedricbonhomme/testmodelsummarization")
+    trainer.push_to_hub("CIRCL/vuln-model-test")
 
 
 def main():
