@@ -100,7 +100,12 @@ def main():
         "--base-model",
         dest="base_model",
         default="gpt2",
-        choices=["gpt2", "distilgpt2", "meta-llama/Llama-3.3-70B-Instruct", "distilbert-base-uncased"],
+        choices=[
+            "gpt2",
+            "distilgpt2",
+            "meta-llama/Llama-3.3-70B-Instruct",
+            "distilbert-base-uncased",
+        ],
         help="Base model to use.",
     )
     parser.add_argument(

@@ -83,7 +83,7 @@ class VulnExtractor:
             #     else:
             #         vuln_title = ""
             for description in vuln["containers"]["cna"].get("descriptions", []):
-                if description["lang"].lower() in ["en", "en-en", "en-us"]:
+                if description["lang"].lower() in ["eng", "en", "en-en", "en-us"]:
                     vuln_description = description["value"]
                     break
             else:
@@ -172,6 +172,13 @@ def main():
         help="Number of rows in the dataset.",
         default=0,
     )
+    parser.add_argument(
+        "--commit-message",
+        dest="commit_message",
+        type=str,
+        help="Commit message when publishing.",
+        default="",
+    )
 
     args = parser.parse_args()
 
@@ -191,8 +198,8 @@ def main():
 
     print(dataset_dict)
     if args.upload:
-        # dataset_dict.push_to_hub("cedricbonhomme/vulnerability-descriptions")
-        dataset_dict.push_to_hub(args.repo_id)
+        # dataset_dict.push_to_hub("CIRCL/vulnerability-dataset")
+        dataset_dict.push_to_hub(args.repo_id, commit_message=args.commit_message)
 
 
 if __name__ == "__main__":
