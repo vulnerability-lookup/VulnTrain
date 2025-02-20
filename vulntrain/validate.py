@@ -2,11 +2,17 @@ import argparse
 
 from transformers import pipeline  # type: ignore[import-untyped]
 
+
+# https://discuss.huggingface.co/t/how-to-set-max-length-properly-when-using-pipeline/125714
+
+
 def main():
     """Instantiates a generator based on a model optimized for text generation and
     send a task (prompt) to the model.
     """
-    parser = argparse.ArgumentParser(description="Validate a text generation model for vulnerabilities.")
+    parser = argparse.ArgumentParser(
+        description="Validate a text generation model for vulnerabilities."
+    )
     parser.add_argument(
         "--model",
         dest="model",

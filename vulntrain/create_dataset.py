@@ -135,7 +135,6 @@ class VulnExtractor:
 
             vuln_cpes = list(dict.fromkeys(cpe.lower() for cpe in vuln_cpes))
 
-
             count += 1
             if count == self.nb_rows:
                 return

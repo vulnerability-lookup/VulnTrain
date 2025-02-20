@@ -83,9 +83,7 @@ def train():
         train_dataset=datasets["train"],
         eval_dataset=datasets["test"],
         tokenizer=tokenizer,
-        data_collator=DataCollatorForLanguageModeling(
-            tokenizer=tokenizer, mlm=False
-        ),
+        data_collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
     )
 
     try:
@@ -98,7 +96,9 @@ def train():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train a vulnerability text generation model")
+    parser = argparse.ArgumentParser(
+        description="Train a vulnerability text generation model"
+    )
     args = parser.parse_args()
     train()
 
