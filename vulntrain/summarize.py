@@ -17,7 +17,7 @@ from transformers import (
 # - distilgpt2, gpt2
 #
 BASE_MODEL = "distilbert-base-uncased"  # distilgpt2, gpt2
-DATASET = "circl/vulnerability-dataset"
+DATASET = "circl/vulnerability-dataset-10k"
 MODEL_PATH = "./vulnerability"
 
 if torch.cuda.is_available():

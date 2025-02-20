@@ -5,6 +5,7 @@ Author: Cédric Bonhomme / CIRCL
 
 """
 
+import argparse
 import json
 from typing import Any, Generator
 
@@ -13,7 +14,8 @@ from datasets import Dataset, DatasetDict
 
 
 class VulnExtractor:
-    def __init__(self):
+    def __init__(self, nb_rows):
+        self.nb_rows = nb_rows
         self.valkey_client = valkey.Valkey(
             host="127.0.0.1",
             port=10002,
@@ -66,12 +68,8 @@ class VulnExtractor:
                 yield vuln
 
     def __call__(self):
-        # count = 0
+        count = 0
         for vuln in self.get_all("cvelistv5", True):
-            # count += 1
-            # if count == 1000:
-            #     return
-
             #
             # CVE id, title, and description
             #
@@ -137,6 +135,11 @@ class VulnExtractor:
 
             vuln_cpes = list(dict.fromkeys(cpe.lower() for cpe in vuln_cpes))
 
+
+            count += 1
+            if count == self.nb_rows:
+                return
+
             #
             # Create the data
             #
@@ -150,7 +153,30 @@ class VulnExtractor:
 
 
 def main():
-    extractor = VulnExtractor()
+    parser = argparse.ArgumentParser(description="Dataset generation.")
+    parser.add_argument(
+        "--upload",
+        action="store_true",
+        help="Upload to HuggingFace.",
+        default=False,
+    )
+    parser.add_argument(
+        "--repo-id",
+        dest="repo_id",
+        help="Repo id.",
+        default="",
+    )
+    parser.add_argument(
+        "--nb-rows",
+        dest="nb_rows",
+        type=int,
+        help="Number of rows in the dataset.",
+        default=0,
+    )
+
+    args = parser.parse_args()
+
+    extractor = VulnExtractor(args.nb_rows)
 
     vulns = list(extractor())
 
@@ -165,8 +191,9 @@ def main():
     )
 
     print(dataset_dict)
-    # dataset_dict.push_to_hub("cedricbonhomme/vulnerability-descriptions")
-    dataset_dict.push_to_hub("CIRCL/vulnerability-dataset")
+    if args.upload:
+        # dataset_dict.push_to_hub("cedricbonhomme/vulnerability-descriptions")
+        dataset_dict.push_to_hub(args.repo_id)
 
 
 if __name__ == "__main__":
