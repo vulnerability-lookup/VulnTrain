@@ -1,5 +1,10 @@
 # Changelog
 
+## Release 0.5.1 (2025-02-22)
+
+Fixed configuration module name.
+
+
 ## Release 0.5.0 (2025-02-21)
 
 Added support of configuration file.
