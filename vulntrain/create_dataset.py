@@ -12,6 +12,7 @@ from typing import Any, Generator
 import valkey
 from datasets import Dataset, DatasetDict  # type: ignore[import-untyped]
 
+from vulntrain.conf import hf_token, valkey_host, valkey_port
 from vulntrain.utils import strip_markdown
 
 
@@ -20,8 +21,8 @@ class VulnExtractor:
         self.sources = sources
         self.nb_rows = nb_rows
         self.valkey_client = valkey.Valkey(
-            host="127.0.0.1",
-            port=10002,
+            host=valkey_host,
+            port=valkey_port,
             decode_responses=True,
         )
 
@@ -237,7 +238,12 @@ def main():
 
     print(dataset_dict)
     if args.upload:
-        dataset_dict.push_to_hub(args.repo_id, commit_message=args.commit_message)
+        if hf_token:
+            dataset_dict.push_to_hub(args.repo_id, commit_message=args.commit_message)
+        else:
+            dataset_dict.push_to_hub(
+                args.repo_id, commit_message=args.commit_message, token=hf_token
+            )
 
 
 if __name__ == "__main__":

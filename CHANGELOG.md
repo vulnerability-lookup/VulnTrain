@@ -1,5 +1,10 @@
 # Changelog
 
+## Release 0.5.0 (2025-02-21)
+
+Added support of configuration file.
+
+
 ## Release 0.4.0 (2025-02-21)
 
 The dataset generation step now uses data from GitHub Advisories,
