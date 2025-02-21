@@ -1,5 +1,11 @@
 # Changelog
 
+## Release 0.4.0 (2025-02-21)
+
+The dataset generation step now uses data from GitHub Advisories,
+and the VulnExtractor cleans the summary and details fields.
+
+
 ## Release 0.3.0 (2025-02-20)
 
 ### News
