@@ -1,4 +1,5 @@
 import argparse
+
 import torch
 from codecarbon import track_emissions  # type: ignore[import-untyped]
 from datasets import load_dataset  # type: ignore[import-untyped]
@@ -10,7 +11,6 @@ from transformers import (  # type: ignore[import-untyped]
     Trainer,
     TrainingArguments,
 )
-
 
 DATASET = "CIRCL/vulnerability"
 MODEL_PATH = "./vulnerability"
@@ -88,8 +88,6 @@ def train(base_model, model_name):
     finally:
         model.save_pretrained(MODEL_PATH)
         tokenizer.save_pretrained(MODEL_PATH)
-
-    
 
     trainer.push_to_hub(model_name)
 

@@ -12,9 +12,12 @@ from typing import Any, Generator
 import valkey
 from datasets import Dataset, DatasetDict  # type: ignore[import-untyped]
 
+from vulntrain.utils import strip_markdown
+
 
 class VulnExtractor:
-    def __init__(self, nb_rows):
+    def __init__(self, sources, nb_rows):
+        self.sources = sources
         self.nb_rows = nb_rows
         self.valkey_client = valkey.Valkey(
             host="127.0.0.1",
@@ -67,92 +70,124 @@ class VulnExtractor:
             if vuln := self.get_vulnerability(vuln_id, with_meta=with_meta):
                 yield vuln
 
+    def extract_cve(self, vuln):
+        #
+        # CVE id, title, and description
+        #
+        vuln_id = vuln["cveMetadata"]["cveId"]
+        vuln_title = vuln["containers"]["cna"].get("title", "")
+        # if not vuln_title:
+        #     for entry in vuln["containers"].get("adp", []):
+        #         if "title" in entry:
+        #             vuln_title = entry.get("title")
+        #             break
+        #     else:
+        #         vuln_title = ""
+        for description in vuln["containers"]["cna"].get("descriptions", []):
+            if description["lang"].lower() in ["eng", "en", "en-en", "en-us"]:
+                vuln_description = description["value"]
+                break
+        else:
+            return {}
+
+        #
+        # CPE
+        #
+
+        # vulnrichement
+        vuln_cpes = []
+        if vulnrichment := vuln.get("vulnerability-lookup:meta", {}).get(
+            "vulnrichment", False
+        ):
+            containers = json.loads(vulnrichment["containers"])
+
+            # Check ADP section
+            if "adp" in containers:
+                for entry in containers["adp"]:
+                    if "affected" in entry:
+                        for affected in entry["affected"]:
+                            if "cpes" in affected:
+                                vuln_cpes.extend(affected["cpes"])
+
+            # Check CNA section
+            if "cna" in containers and "affected" in containers["cna"]:
+                for affected in containers["cna"]["affected"]:
+                    if "cpes" in affected:
+                        vuln_cpes.extend(affected["cpes"])
+
+        # fkie
+        if fkie := vuln.get("vulnerability-lookup:meta", {}).get("fkie_nvd", False):
+            if "configurations" in fkie:
+                configurations = json.loads(fkie["configurations"])
+                for config in configurations:
+                    if "nodes" in config:
+                        for node in config["nodes"]:
+                            if "cpeMatch" in node:
+                                vuln_cpes.extend(
+                                    match["criteria"]
+                                    for match in node["cpeMatch"]
+                                    if "criteria" in match
+                                )
+
+        # default container
+        for elem in vuln["containers"]["cna"]["affected"]:
+            if "cpes" in elem:
+                vuln_cpes.extend(elem["cpes"])
+
+        vuln_cpes = list(dict.fromkeys(cpe.lower() for cpe in vuln_cpes))
+
+        vuln_data = {
+            "id": vuln_id,
+            "title": vuln_title,
+            "description": vuln_description,
+            "cpes": vuln_cpes,
+        }
+
+        return vuln_data
+
+    def extract_github(self, vuln):
+        vuln_id = vuln["id"]
+        vuln_title = strip_markdown(vuln.get("summary", ""))
+        vuln_description = strip_markdown(vuln.get("details", ""))
+        vuln_data = {
+            "id": vuln_id,
+            "title": vuln_title,
+            "description": vuln_description,
+            "cpes": [],
+        }
+
+        return vuln_data
+
     def __call__(self):
         count = 0
-        for vuln in self.get_all("cvelistv5", True):
-            #
-            # CVE id, title, and description
-            #
-            vuln_id = vuln["cveMetadata"]["cveId"]
-            vuln_title = vuln["containers"]["cna"].get("title", "")
-            # if not vuln_title:
-            #     for entry in vuln["containers"].get("adp", []):
-            #         if "title" in entry:
-            #             vuln_title = entry.get("title")
-            #             break
-            #     else:
-            #         vuln_title = ""
-            for description in vuln["containers"]["cna"].get("descriptions", []):
-                if description["lang"].lower() in ["eng", "en", "en-en", "en-us"]:
-                    vuln_description = description["value"]
-                    break
-            else:
-                continue
+        for source in self.sources:
+            for vuln in self.get_all(source, True):
+                match source:
+                    case "cvelistv5":
+                        vuln_data = self.extract_cve(vuln)
+                    case "github":
+                        vuln_data = self.extract_github(vuln)
+                    case _:
+                        raise Exception("Unknown source.")
 
-            #
-            # CPE
-            #
+                if not vuln_data.get("description", ""):
+                    continue
 
-            # vulnrichement
-            vuln_cpes = []
-            if vulnrichment := vuln.get("vulnerability-lookup:meta", {}).get(
-                "vulnrichment", False
-            ):
-                containers = json.loads(vulnrichment["containers"])
+                yield vuln_data
 
-                # Check ADP section
-                if "adp" in containers:
-                    for entry in containers["adp"]:
-                        if "affected" in entry:
-                            for affected in entry["affected"]:
-                                if "cpes" in affected:
-                                    vuln_cpes.extend(affected["cpes"])
-
-                # Check CNA section
-                if "cna" in containers and "affected" in containers["cna"]:
-                    for affected in containers["cna"]["affected"]:
-                        if "cpes" in affected:
-                            vuln_cpes.extend(affected["cpes"])
-
-            # fkie
-            if fkie := vuln.get("vulnerability-lookup:meta", {}).get("fkie_nvd", False):
-                if "configurations" in fkie:
-                    configurations = json.loads(fkie["configurations"])
-                    for config in configurations:
-                        if "nodes" in config:
-                            for node in config["nodes"]:
-                                if "cpeMatch" in node:
-                                    vuln_cpes.extend(
-                                        match["criteria"]
-                                        for match in node["cpeMatch"]
-                                        if "criteria" in match
-                                    )
-
-            # default container
-            for elem in vuln["containers"]["cna"]["affected"]:
-                if "cpes" in elem:
-                    vuln_cpes.extend(elem["cpes"])
-
-            vuln_cpes = list(dict.fromkeys(cpe.lower() for cpe in vuln_cpes))
-
-            count += 1
-            if count == self.nb_rows:
-                return
-
-            #
-            # Create the data
-            #
-            vuln_data = {
-                "id": vuln_id,
-                "title": vuln_title,
-                "description": vuln_description,
-                "cpes": vuln_cpes,
-            }
-            yield vuln_data
+                count += 1
+                if count == self.nb_rows:
+                    return
 
 
 def main():
     parser = argparse.ArgumentParser(description="Dataset generation.")
+    parser.add_argument(
+        "--sources",
+        dest="sources",
+        required=True,
+        default="The Vulnerability-Lookup sources of vulnerability advisories. List of sources (cvelistv5, github) separated by a coma.",
+    )
     parser.add_argument(
         "--upload",
         action="store_true",
@@ -163,6 +198,13 @@ def main():
         "--repo-id",
         dest="repo_id",
         help="Repo id.",
+        default="The id/name of the destination repository for the dataset.",
+    )
+    parser.add_argument(
+        "--commit-message",
+        dest="commit_message",
+        type=str,
+        help="Commit message when publishing.",
         default="",
     )
     parser.add_argument(
@@ -172,17 +214,14 @@ def main():
         help="Number of rows in the dataset.",
         default=0,
     )
-    parser.add_argument(
-        "--commit-message",
-        dest="commit_message",
-        type=str,
-        help="Commit message when publishing.",
-        default="",
-    )
 
     args = parser.parse_args()
 
-    extractor = VulnExtractor(args.nb_rows)
+    sources = []
+    if args.sources:
+        sources = args.sources.split(",")
+
+    extractor = VulnExtractor(sources, args.nb_rows)
 
     vulns = list(extractor())
 
