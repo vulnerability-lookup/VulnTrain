@@ -12,7 +12,7 @@ from typing import Any, Generator
 import valkey
 from datasets import Dataset, DatasetDict  # type: ignore[import-untyped]
 
-from vulntrain.conf import hf_token, valkey_host, valkey_port
+from vulntrain.config import hf_token, valkey_host, valkey_port
 from vulntrain.utils import strip_markdown
 
 
