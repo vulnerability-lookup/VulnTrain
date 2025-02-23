@@ -13,7 +13,7 @@ import valkey
 from datasets import Dataset, DatasetDict  # type: ignore[import-untyped]
 
 from vulntrain.config import hf_token, valkey_host, valkey_port
-from vulntrain.utils import strip_markdown
+from vulntrain.utils import strip_markdown, extract_cvss_cve, extract_cvss_from_github_advisory
 
 
 class VulnExtractor:
@@ -25,6 +25,27 @@ class VulnExtractor:
             port=valkey_port,
             decode_responses=True,
         )
+        self.cvss_severity_mapping = {
+            "Low": (0.1, 3.9),
+            "Medium": (4.0, 6.9),
+            "High": (7.0, 8.9),
+            "Critical": (9.0, 10.0),
+        }
+
+    def classify_cvss(self, score):
+        """Convert a CVSS score (0-10) into a severity category."""
+        cvss_severity_mapping = {
+            "Low": (0.1, 3.9),
+            "Medium": (4.0, 6.9),
+            "High": (7.0, 8.9),
+            "Critical": (9.0, 10.0),
+        }
+
+        for severity, (low, high) in cvss_severity_mapping.items():
+            if low <= score <= high:
+                return severity
+        return "Unknown"  # Handle missing or invalid scores
+
 
     def get_vulnerability_meta(
         self, vulnerability_id: str
@@ -137,11 +158,18 @@ class VulnExtractor:
 
         vuln_cpes = list(dict.fromkeys(cpe.lower() for cpe in vuln_cpes))
 
+        #
+        # CVSS
+        #
+        cvss_scores = extract_cvss_cve(vuln)
+
+
         vuln_data = {
             "id": vuln_id,
             "title": vuln_title,
             "description": vuln_description,
             "cpes": vuln_cpes,
+            **cvss_scores,
         }
 
         return vuln_data
@@ -150,11 +178,13 @@ class VulnExtractor:
         vuln_id = vuln["id"]
         vuln_title = strip_markdown(vuln.get("summary", ""))
         vuln_description = strip_markdown(vuln.get("details", ""))
+        cvss_scores = extract_cvss_from_github_advisory(vuln)
         vuln_data = {
             "id": vuln_id,
             "title": vuln_title,
             "description": vuln_description,
             "cpes": [],
+            **cvss_scores,
         }
 
         return vuln_data
