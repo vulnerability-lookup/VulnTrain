@@ -1,20 +1,26 @@
 # VulnTrain
 
-Generate various datasets amd models based on vulnerabilities data from
-[Vulnerability-Lookup](https://github.com/vulnerability-lookup/vulnerability-lookup).
+[![Latest release](https://img.shields.io/github/release/vulnerability-lookup/VulnTrain.svg?style=flat-square)](https://github.com/vulnerability-lookup/VulnTrain/releases/latest)
+[![License](https://img.shields.io/github/license/vulnerability-lookup/VulnTrain.svg?style=flat-square)](https://www.gnu.org/licenses/gpl-3.0.html)
+[![PyPi version](https://img.shields.io/pypi/v/VulnTrain.svg?style=flat-square)](https://pypi.org/project/VulnTrain)
 
-Uses data from the ``vulnerability-lookup:meta`` container such as vulnrichment and FKIE in order to enrich the models.
 
-Check out the datasets and models on Hugging Face: https://huggingface.co/CIRCL
+A tool to generate various datasets amd models based on vulnerabilities data from
+[Vulnerability-Lookup](https://github.com/vulnerability-lookup/vulnerability-lookup).  
+It uses data from the ``vulnerability-lookup:meta`` container such as vulnrichment and FKIE in order to enrich the models.
+
+Check out the datasets and models on Hugging Face: 
+
+[![Model on HF](https://huggingface.co/datasets/huggingface/badges/resolve/main/model-on-hf-xl-dark.svg)](https://huggingface.co/CIRCL)
 
 
 ## Usage
 
 Various types of commands are available:
 
-- Dataset generation: Create and prepare datasets.
-- Model training: Train models on the prepared datasets.
-- Model validation: Evaluate the performance of the trained model.
+- **Dataset generation**: Create and prepare datasets.
+- **Model training**: Train models on the prepared datasets.
+- **Model validation**: Evaluate the performance of the trained model.
 
 
 ### Generate datasets
@@ -95,7 +101,9 @@ Using CUDA (Nvidia GPU).
 
 #### Training for classification
 
-tf-idf on the vulnerability descriptions.
+
+- distilbert with CVS scores mapping
+- tf-idf on the vulnerability descriptions.
 
 
 
