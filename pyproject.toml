@@ -38,6 +38,7 @@ Repository = "https://github.com/vulnerability-lookup/VulnTrain"
 [project.scripts]
 vulntrain-create-dataset = "vulntrain.create_dataset:main"
 vulntrain-train-dataset = "vulntrain.summarize:main"
+vulntrain-train-classification-dataset = "vulntrain.classify:main"
 vulntrain-validate-text-generation = "vulntrain.validate:main"
 
 
