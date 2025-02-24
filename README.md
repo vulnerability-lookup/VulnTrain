@@ -1,19 +1,21 @@
 # VulnTrain
 
-Generate datasets amd models based on vulnerabilities data from
+Generate various datasets amd models based on vulnerabilities data from
 [Vulnerability-Lookup](https://github.com/vulnerability-lookup/vulnerability-lookup).
 
-Uses data from the ``vulnerability-lookup:meta`` container such as vulnrichment and FKIE.
+Uses data from the ``vulnerability-lookup:meta`` container such as vulnrichment and FKIE in order to enrich the models.
 
-
-## Datasets
-
-Various datasets generated are available on HuggingFace:
-
-https://huggingface.co/datasets/circl/vulnerability
+Check out the datasets and models on Hugging Face: https://huggingface.co/CIRCL
 
 
 ## Usage
+
+Various types of commands are available:
+
+- Dataset generation: Create and prepare datasets.
+- Model training: Train models on the prepared datasets.
+- Model validation: Evaluate the performance of the trained model.
+
 
 ### Generate datasets
 
