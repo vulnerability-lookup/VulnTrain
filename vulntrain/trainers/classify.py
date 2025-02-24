@@ -70,7 +70,7 @@ def map_cvss_to_severity(example):
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(repo_id):
     base_model = "distilbert-base-uncased"
-    model_path = "./vulnerability"
+    model_path = "./vulnerability-classify"
 
     # Load dataset from Hugging Face
     dataset_id = "CIRCL/vulnerability-scores"

@@ -13,7 +13,7 @@ from transformers import (  # type: ignore[import-untyped]
 )
 
 DATASET = "CIRCL/vulnerability"
-MODEL_PATH = "./vulnerability"
+MODEL_PATH = "./vulnerability-description"
 
 if torch.cuda.is_available():
     device = torch.device("cuda")
