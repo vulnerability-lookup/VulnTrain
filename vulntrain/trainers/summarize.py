@@ -94,7 +94,7 @@ def train(base_model, model_name):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Train a vulnerability text generation model"
+        description="Train a vulnerability text generation model."
     )
     parser.add_argument(
         "--base-model",
