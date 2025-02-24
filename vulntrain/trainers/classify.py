@@ -1,9 +1,10 @@
 import argparse
 
-import evaluate  # type: ignore[import-untyped]
+import evaluate
 import numpy as np
-from datasets import load_dataset  # type: ignore[import-untyped]
-from transformers import (  # type: ignore[import-untyped]
+from codecarbon import track_emissions  # type: ignore[import-untyped]
+from datasets import load_dataset
+from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
     Trainer,
@@ -12,7 +13,7 @@ from transformers import (  # type: ignore[import-untyped]
 
 """
 Automatically classify new vulnerabilities based on their descriptions,
-even if they don’t have CVSS scores.
+even if they don't have CVSS scores.
 
 Currently using distilbert-base-uncased or bert-base-uncased.
 """
@@ -30,88 +31,130 @@ def compute_metrics(eval_pred):
 
 
 # Define severity mapping function
-def map_cvss_to_severity(elem):
-    cvss_scores = [
-        elem.get("cvss_v4_0"),
-        elem.get("cvss_v3_1"),
-        elem.get("cvss_v3_0"),
-        elem.get("cvss_v2_0"),
-    ]
-    cvss_scores = [score for score in cvss_scores if score is not None]
+def map_cvss_to_severity(example):
+    def to_float(value):
+        try:
+            return float(value) if value is not None else None
+        except ValueError:
+            return None
 
-    if not cvss_scores:
-        return None  # Remove this entry
+    cvss_v4_0 = to_float(example.get("cvss_v4_0"))
+    cvss_v3_1 = to_float(example.get("cvss_v3_1"))
+    cvss_v3_0 = to_float(example.get("cvss_v3_0"))
+    cvss_v2_0 = to_float(example.get("cvss_v2_0"))
 
-    highest_cvss = max(cvss_scores)
+    severity_score = next(
+        (
+            score
+            for score in [cvss_v4_0, cvss_v3_1, cvss_v3_0, cvss_v2_0]
+            if score is not None
+        ),
+        None,
+    )
 
-    if highest_cvss >= 9.0:
-        elem["severity_label"] = SEVERITY_MAPPING["Critical"]
-    elif highest_cvss >= 7.0:
-        elem["severity_label"] = SEVERITY_MAPPING["High"]
-    elif highest_cvss >= 4.0:
-        elem["severity_label"] = SEVERITY_MAPPING["Medium"]
+    if severity_score is None:
+        severity_label = "Unknown"
+    elif severity_score >= 9.0:
+        severity_label = "Critical"
+    elif severity_score >= 7.0:
+        severity_label = "High"
+    elif severity_score >= 4.0:
+        severity_label = "Medium"
     else:
-        elem["severity_label"] = SEVERITY_MAPPING["Low"]
+        severity_label = "Low"
 
-    return elem
-
-
-# Load dataset from Hugging Face
-dataset_id = "CIRCL/vulnerability-scores"
-dataset = load_dataset(dataset_id)
-
-# Map severity labels and remove None values
-dataset = dataset.map(map_cvss_to_severity)
-dataset = dataset.filter(lambda x: x is not None)  # Remove unknown severities
-
-# Tokenization
-tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
+    example["severity_label"] = severity_label
+    return example
 
 
-def tokenize_function(elem):
-    return tokenizer(elem["description"], padding="max_length", truncation=True)
+@track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
+def train(model_name):
+    base_model = "distilbert-base-uncased"
+    model_path = "./vulnerability"
 
+    # Load dataset from Hugging Face
+    dataset_id = "CIRCL/vulnerability-scores"
+    dataset = load_dataset(dataset_id)
 
-tokenized_datasets = dataset.map(tokenize_function, batched=True)
+    # Map severity labels 
+    dataset = dataset.map(map_cvss_to_severity)
 
-# Define model
-model_name = "distilbert-base-uncased"
-num_labels = len(SEVERITY_MAPPING)  # 4 classes
+    # Filter out entries with no severity_label
+    dataset = dataset.filter(lambda x: "severity_label" in x)
+    dataset = dataset.filter(lambda x: x["severity_label"] in SEVERITY_MAPPING)
 
-model = AutoModelForSequenceClassification.from_pretrained(
-    model_name,
-    num_labels=num_labels,
-    id2label={v: k for k, v in SEVERITY_MAPPING.items()},  # Mapping indices to labels
-    label2id=SEVERITY_MAPPING,  # Mapping labels to indices
-)
+    # Tokenization with labels
+    tokenizer = AutoTokenizer.from_pretrained(base_model)
 
-# Define training arguments
-training_args = TrainingArguments(
-    output_dir="./results",  # Output directory
-    evaluation_strategy="epoch",  # Evaluate every epoch
-    save_strategy="epoch",  # Save model every epoch
-    learning_rate=2e-5,
-    per_device_train_batch_size=16,
-    per_device_eval_batch_size=16,
-    num_train_epochs=5,
-    weight_decay=0.01,
-    logging_dir="./logs",
-    logging_steps=10,
-    load_best_model_at_end=True,
-)
+    def tokenize_function(elem):
+        tokenized = tokenizer(
+            elem["description"],
+            padding="max_length",
+            truncation=True,
+        )
+        
+        # Convert list of labels to integers explicitly
+        tokenized["labels"] = [int(SEVERITY_MAPPING.get(label, -1)) for label in elem["severity_label"]]
 
-# Create Trainer
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=tokenized_datasets["train"],
-    eval_dataset=tokenized_datasets["test"],
-    tokenizer=tokenizer,
-    compute_metrics=compute_metrics,
-)
+        # print(f"Raw severity labels: {elem['severity_label']}")
+        # print(f"Mapped labels: {tokenized['labels']}")s
 
-# Train model
-trainer.train()
+        return tokenized
+
+    tokenized_datasets = dataset.map(tokenize_function, batched=True)
+
+    
+    # print(tokenized_datasets["test"])
+
+    # Define model
+    num_labels = len(SEVERITY_MAPPING)  # 4 classes
+
+    model = AutoModelForSequenceClassification.from_pretrained(
+        base_model,
+        num_labels=num_labels,
+        id2label={
+            v: k for k, v in SEVERITY_MAPPING.items()
+        },  # Mapping indices to labels
+        label2id=SEVERITY_MAPPING,  # Mapping labels to indices
+    )
+
+    # Define training arguments
+    training_args = TrainingArguments(
+        output_dir="./results",
+        evaluation_strategy="epoch",
+        save_strategy="epoch",
+        learning_rate=2e-5,
+        per_device_train_batch_size=16,
+        per_device_eval_batch_size=16,
+        num_train_epochs=5,
+        weight_decay=0.01,
+        logging_dir="./logs",
+        logging_steps=10,
+        load_best_model_at_end=True,
+        push_to_hub=True,
+        hub_model_id=model_name,
+        # remove_unused_columns=False,  # Ensure dataset columns are kept
+    )
+
+    # Create Trainer
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=tokenized_datasets["train"],
+        eval_dataset=tokenized_datasets["test"],
+        tokenizer=tokenizer,
+        compute_metrics=compute_metrics,
+    )
+
+    # Train model
+    try:
+        trainer.train()
+    finally:
+        model.save_pretrained(model_path)
+        tokenizer.save_pretrained(model_path)
+
+    # trainer.push_to_hub()
+    # tokenizer.push_to_hub(model_name)
 
 
 def main():
@@ -119,5 +162,16 @@ def main():
         description="Train a vulnerability classification model."
     )
     parser.add_argument(
-        "--upload", action="store_true", help="Upload dataset to Hugging Face"
+        "--model-name",
+        dest="model_name",
+        required=True,
+        help="Name of the model to upload.",
     )
+
+    args = parser.parse_args()
+
+    train(args.model_name)
+
+
+if __name__ == "__main__":
+    main()
