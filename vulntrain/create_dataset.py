@@ -87,7 +87,9 @@ class VulnExtractor:
             "title": vuln_title,
             "description": vuln_description,
             "cpes": vuln_cpes,
+            "cvss_v4_0": cvss_scores.get("cvss_v4_0", None),
             "cvss_v3_1": cvss_scores.get("cvss_v3_1", None),
+            "cvss_v3_0": cvss_scores.get("cvss_v3_0", None),
             "cvss_v2_0": cvss_scores.get("cvss_v2_0", None),
         }
 
@@ -112,6 +114,7 @@ class VulnExtractor:
                     continue
                 
                 yield vuln_data
+
                 count += 1
                 if count == self.nb_rows:
                     return

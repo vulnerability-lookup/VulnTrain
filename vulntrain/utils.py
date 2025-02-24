@@ -54,7 +54,6 @@ def extract_cvss_cve(data) -> dict[str, float]:
     return cvss_scores
 
 
-
 def extract_cvss_cve_old(data) -> dict[str, float]:
     cvss_scores = {}
     
