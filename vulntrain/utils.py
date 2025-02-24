@@ -1,4 +1,3 @@
-
 import json
 
 from markdown_it import MarkdownIt
@@ -18,47 +17,47 @@ def strip_markdown(text) -> str:
 
 def extract_cpe(data) -> list[str]:
     # vulnrichement
-        vuln_cpes = []
-        if vulnrichment := data.get("vulnerability-lookup:meta", {}).get(
-            "vulnrichment", False
-        ):
-            containers = json.loads(vulnrichment["containers"])
+    vuln_cpes = []
+    if vulnrichment := data.get("vulnerability-lookup:meta", {}).get(
+        "vulnrichment", False
+    ):
+        containers = json.loads(vulnrichment["containers"])
 
-            # Check ADP section
-            if "adp" in containers:
-                for entry in containers["adp"]:
-                    if "affected" in entry:
-                        for affected in entry["affected"]:
-                            if "cpes" in affected:
-                                vuln_cpes.extend(affected["cpes"])
+        # Check ADP section
+        if "adp" in containers:
+            for entry in containers["adp"]:
+                if "affected" in entry:
+                    for affected in entry["affected"]:
+                        if "cpes" in affected:
+                            vuln_cpes.extend(affected["cpes"])
 
-            # Check CNA section
-            if "cna" in containers and "affected" in containers["cna"]:
-                for affected in containers["cna"]["affected"]:
-                    if "cpes" in affected:
-                        vuln_cpes.extend(affected["cpes"])
+        # Check CNA section
+        if "cna" in containers and "affected" in containers["cna"]:
+            for affected in containers["cna"]["affected"]:
+                if "cpes" in affected:
+                    vuln_cpes.extend(affected["cpes"])
 
-        # fkie
-        if fkie := data.get("vulnerability-lookup:meta", {}).get("fkie_nvd", False):
-            if "configurations" in fkie:
-                configurations = json.loads(fkie["configurations"])
-                for config in configurations:
-                    if "nodes" in config:
-                        for node in config["nodes"]:
-                            if "cpeMatch" in node:
-                                vuln_cpes.extend(
-                                    match["criteria"]
-                                    for match in node["cpeMatch"]
-                                    if "criteria" in match
-                                )
+    # fkie
+    if fkie := data.get("vulnerability-lookup:meta", {}).get("fkie_nvd", False):
+        if "configurations" in fkie:
+            configurations = json.loads(fkie["configurations"])
+            for config in configurations:
+                if "nodes" in config:
+                    for node in config["nodes"]:
+                        if "cpeMatch" in node:
+                            vuln_cpes.extend(
+                                match["criteria"]
+                                for match in node["cpeMatch"]
+                                if "criteria" in match
+                            )
 
-        # default container
-        for elem in data["containers"]["cna"]["affected"]:
-            if "cpes" in elem:
-                vuln_cpes.extend(elem["cpes"])
+    # default container
+    for elem in data["containers"]["cna"]["affected"]:
+        if "cpes" in elem:
+            vuln_cpes.extend(elem["cpes"])
 
-        vuln_cpes = list(dict.fromkeys(cpe.lower() for cpe in vuln_cpes))
-        return vuln_cpes
+    vuln_cpes = list(dict.fromkeys(cpe.lower() for cpe in vuln_cpes))
+    return vuln_cpes
 
 
 def format_cvss_version(version: str) -> str:
@@ -81,7 +80,9 @@ def extract_cvss_cve(data) -> dict[str, float]:
     for metric in data.get("containers", {}).get("cna", {}).get("metrics", []):
         for key in metric:
             if key.startswith("cvssV") and "baseScore" in metric[key]:
-                cvss_scores[format_cvss_version(metric[key]["version"])] = metric[key]["baseScore"]
+                cvss_scores[format_cvss_version(metric[key]["version"])] = metric[key][
+                    "baseScore"
+                ]
 
     # If no CVSS found, check vulnerability-lookup:meta (for embedded NVD JSON)
     if not cvss_scores:
@@ -89,10 +90,14 @@ def extract_cvss_cve(data) -> dict[str, float]:
         if isinstance(nvd_meta, str):  # Ensure it's a JSON string
             try:
                 nvd_data = json.loads(nvd_meta)
-                for version, metrics in nvd_data.get("cve", {}).get("metrics", {}).items():
+                for version, metrics in (
+                    nvd_data.get("cve", {}).get("metrics", {}).items()
+                ):
                     for key in metrics:
                         if "cvssData" in key and "baseScore" in key["cvssData"]:
-                            cvss_scores[format_cvss_version(key["cvssData"]["version"])] = key["cvssData"]["baseScore"]
+                            cvss_scores[
+                                format_cvss_version(key["cvssData"]["version"])
+                            ] = key["cvssData"]["baseScore"]
             except json.JSONDecodeError:
                 pass  # Ignore invalid JSON
 
@@ -101,12 +106,14 @@ def extract_cvss_cve(data) -> dict[str, float]:
 
 def extract_cvss_cve_old(data) -> dict[str, float]:
     cvss_scores = {}
-    
+
     # Check in the main CNA metrics section
     for metric in data.get("containers", {}).get("cna", {}).get("metrics", []):
         for key in metric:
             if key.startswith("cvssV"):
-                cvss_scores[format_cvss_version(metric[key]["version"])] = metric[key]["baseScore"]
+                cvss_scores[format_cvss_version(metric[key]["version"])] = metric[key][
+                    "baseScore"
+                ]
 
     if not cvss_scores:
         # Check in vulnerability-lookup:meta (if embedded NVD JSON exists)
@@ -114,9 +121,13 @@ def extract_cvss_cve_old(data) -> dict[str, float]:
         if nvd_meta:
             try:
                 nvd_data = json.loads(nvd_meta)
-                for version, metric in nvd_data.get("cve", {}).get("metrics", {}).items():
+                for version, metric in (
+                    nvd_data.get("cve", {}).get("metrics", {}).items()
+                ):
                     for key in metric:
-                        cvss_scores[format_cvss_version(key["cvssData"]["version"])] = key["cvssData"]["baseScore"]
+                        cvss_scores[format_cvss_version(key["cvssData"]["version"])] = (
+                            key["cvssData"]["baseScore"]
+                        )
             except json.JSONDecodeError:
                 pass  # Handle invalid JSON string in meta
 
