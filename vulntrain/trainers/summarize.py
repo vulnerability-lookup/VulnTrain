@@ -41,21 +41,6 @@ def get_datasets(tokenizer):
     return tokenized_datasets.train_test_split(test_size=0.2)
 
 
-training_args = TrainingArguments(
-    output_dir=MODEL_PATH,
-    num_train_epochs=3,
-    learning_rate=2e-5,
-    per_device_train_batch_size=8,
-    per_device_eval_batch_size=8,
-    warmup_steps=500,
-    weight_decay=0.01,
-    evaluation_strategy="epoch",
-    save_strategy="epoch",
-    load_best_model_at_end=True,
-    logging_dir="./logs",
-)
-
-
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(base_model, model_name):
     print(f"Base model {base_model}")
@@ -74,6 +59,21 @@ def train(base_model, model_name):
 
     datasets = get_datasets(tokenizer)
 
+    training_args = TrainingArguments(
+        output_dir=MODEL_PATH,
+        num_train_epochs=3,
+        learning_rate=2e-5,
+        per_device_train_batch_size=8,
+        per_device_eval_batch_size=8,
+        warmup_steps=500,
+        weight_decay=0.01,
+        evaluation_strategy="epoch",
+        save_strategy="epoch",
+        load_best_model_at_end=True,
+        logging_dir="./logs",
+        hub_model_id=model_name,  # Explicitly specify HF model repo
+    )
+
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -89,7 +89,8 @@ def train(base_model, model_name):
         model.save_pretrained(MODEL_PATH)
         tokenizer.save_pretrained(MODEL_PATH)
 
-    trainer.push_to_hub(model_name)
+    trainer.push_to_hub()
+    tokenizer.push_to_hub(model_name)
 
 
 def main():
