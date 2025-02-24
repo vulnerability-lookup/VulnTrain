@@ -6,7 +6,7 @@ import valkey
 from datasets import Dataset, DatasetDict  # type: ignore[import-untyped]
 
 from vulntrain.config import hf_token, valkey_host, valkey_port
-from vulntrain.utils import strip_markdown, extract_cvss_cve, extract_cvss_from_github_advisory
+from vulntrain.utils import strip_markdown, extract_cpe, extract_cvss_cve, extract_cvss_from_github_advisory
 
 
 class VulnExtractor:
@@ -69,17 +69,11 @@ class VulnExtractor:
         vuln_description = next(
             (desc["value"] for desc in vuln["containers"]["cna"].get("descriptions", []) if desc["lang"].startswith("en")), ""
         )
-        
         if not vuln_description:
+            # skip a CVE without description
             return {}
 
-        vuln_cpes = []
-        for key in ("vulnerability-lookup:meta", "cna", "adp"):
-            if key in vuln:
-                for affected in vuln[key].get("affected", []):
-                    vuln_cpes.extend(affected.get("cpes", []))
-
-        vuln_cpes = list(set(vuln_cpes))
+        vuln_cpes = extract_cpe(vuln)
         cvss_scores = extract_cvss_cve(vuln)
 
         return {
@@ -94,7 +88,7 @@ class VulnExtractor:
         }
 
 
-    def extract_github(self, vuln: dict[str, Any]) -> dict[str, Any]:
+    def extract_ghsa(self, vuln: dict[str, Any]) -> dict[str, Any]:
         return {
             "id": vuln["id"],
             "title": strip_markdown(vuln.get("summary", "")),
@@ -107,7 +101,7 @@ class VulnExtractor:
         count = 0
         for source in self.sources:
             for vuln in self.get_all(source, True):
-                extractor = self.extract_cve if source == "cvelistv5" else self.extract_github
+                extractor = self.extract_cve if source == "cvelistv5" else self.extract_ghsa
                 vuln_data = extractor(vuln)
                 
                 if not vuln_data.get("description"):

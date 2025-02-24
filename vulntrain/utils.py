@@ -16,6 +16,51 @@ def strip_markdown(text) -> str:
     return "".join(token.content for token in parsed if token.type == "inline")
 
 
+def extract_cpe(data) -> list[str]:
+    # vulnrichement
+        vuln_cpes = []
+        if vulnrichment := data.get("vulnerability-lookup:meta", {}).get(
+            "vulnrichment", False
+        ):
+            containers = json.loads(vulnrichment["containers"])
+
+            # Check ADP section
+            if "adp" in containers:
+                for entry in containers["adp"]:
+                    if "affected" in entry:
+                        for affected in entry["affected"]:
+                            if "cpes" in affected:
+                                vuln_cpes.extend(affected["cpes"])
+
+            # Check CNA section
+            if "cna" in containers and "affected" in containers["cna"]:
+                for affected in containers["cna"]["affected"]:
+                    if "cpes" in affected:
+                        vuln_cpes.extend(affected["cpes"])
+
+        # fkie
+        if fkie := data.get("vulnerability-lookup:meta", {}).get("fkie_nvd", False):
+            if "configurations" in fkie:
+                configurations = json.loads(fkie["configurations"])
+                for config in configurations:
+                    if "nodes" in config:
+                        for node in config["nodes"]:
+                            if "cpeMatch" in node:
+                                vuln_cpes.extend(
+                                    match["criteria"]
+                                    for match in node["cpeMatch"]
+                                    if "criteria" in match
+                                )
+
+        # default container
+        for elem in data["containers"]["cna"]["affected"]:
+            if "cpes" in elem:
+                vuln_cpes.extend(elem["cpes"])
+
+        vuln_cpes = list(dict.fromkeys(cpe.lower() for cpe in vuln_cpes))
+        return vuln_cpes
+
+
 def format_cvss_version(version: str) -> str:
     return f"cvss_v{version.replace('.', '_')}".lower()
 
