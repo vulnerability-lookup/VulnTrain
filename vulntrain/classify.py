@@ -10,6 +10,13 @@ from transformers import (  # type: ignore[import-untyped]
     TrainingArguments,
 )
 
+"""
+Automatically classify new vulnerabilities based on their descriptions,
+even if they don’t have CVSS scores.
+
+Currently using distilbert-base-uncased or bert-base-uncased.
+"""
+
 # Define severity label mapping
 SEVERITY_MAPPING = {"Low": 0, "Medium": 1, "High": 2, "Critical": 3}
 
