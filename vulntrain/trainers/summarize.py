@@ -42,9 +42,9 @@ def get_datasets(tokenizer):
 
 
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
-def train(base_model, model_name):
+def train(base_model, repo_id):
     print(f"Base model {base_model}")
-    print(f"Destination model: {model_name}")
+    print(f"Destination model: {repo_id}")
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
 
@@ -71,7 +71,7 @@ def train(base_model, model_name):
         save_strategy="epoch",
         load_best_model_at_end=True,
         logging_dir="./logs",
-        hub_model_id=model_name,  # Explicitly specify HF model repo
+        hub_model_id=repo_id,  # Explicitly specify HF model repo
     )
 
     trainer = Trainer(
@@ -90,7 +90,7 @@ def train(base_model, model_name):
         tokenizer.save_pretrained(MODEL_PATH)
 
     trainer.push_to_hub()
-    tokenizer.push_to_hub(model_name)
+    tokenizer.push_to_hub(repo_id)
 
 
 def main():
@@ -110,15 +110,15 @@ def main():
         help="Base model to use.",
     )
     parser.add_argument(
-        "--model-name",
-        dest="model_name",
+        "--repo-id",
+        dest="repo_id",
         required=True,
-        help="Name of the model to upload.",
+        help="The name of the repository you want to push your object to. It should contain your organization name when pushing to a given organization.",
     )
 
     args = parser.parse_args()
 
-    train(args.base_model, args.model_name)
+    train(args.base_model, args.repo_id)
 
 
 if __name__ == "__main__":

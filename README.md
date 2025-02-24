@@ -5,9 +5,11 @@
 [![PyPi version](https://img.shields.io/pypi/v/VulnTrain.svg?style=flat-square)](https://pypi.org/project/VulnTrain)
 
 
-A tool to generate various datasets amd models based on vulnerabilities data from
-[Vulnerability-Lookup](https://github.com/vulnerability-lookup/vulnerability-lookup).  
-It uses data from the ``vulnerability-lookup:meta`` container such as vulnrichment and FKIE in order to enrich the models.
+A tool for generating diverse datasets and models using vulnerability data from
+[Vulnerability-Lookup](https://github.com/vulnerability-lookup/vulnerability-lookup).
+
+It leverages all vulnerability advisory sources supported by Vulnerability-Lookup to train models effectively, utilizing over one million JSON records.  
+Additionally, data from the ``vulnerability-lookup:meta`` container, including enrichment sources such as vulnrichment and Fraunhofer FKIE, is incorporated to enhance model quality.
 
 Check out the datasets and models on Hugging Face: 
 

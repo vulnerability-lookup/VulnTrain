@@ -68,7 +68,7 @@ def map_cvss_to_severity(example):
 
 
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
-def train(model_name):
+def train(repo_id):
     base_model = "distilbert-base-uncased"
     model_path = "./vulnerability"
 
@@ -76,10 +76,10 @@ def train(model_name):
     dataset_id = "CIRCL/vulnerability-scores"
     dataset = load_dataset(dataset_id)
 
-    # Map severity labels 
+    # Map severity labels
     dataset = dataset.map(map_cvss_to_severity)
 
-    # Filter out entries with no severity_label
+    # Filter out entries with no severity_label and with unknown keys
     dataset = dataset.filter(lambda x: "severity_label" in x)
     dataset = dataset.filter(lambda x: x["severity_label"] in SEVERITY_MAPPING)
 
@@ -92,9 +92,11 @@ def train(model_name):
             padding="max_length",
             truncation=True,
         )
-        
-        # Convert list of labels to integers explicitly
-        tokenized["labels"] = [int(SEVERITY_MAPPING.get(label, -1)) for label in elem["severity_label"]]
+
+        # Convert list of severity labels to integers
+        tokenized["labels"] = [
+            int(SEVERITY_MAPPING.get(label, -1)) for label in elem["severity_label"]
+        ]
 
         # print(f"Raw severity labels: {elem['severity_label']}")
         # print(f"Mapped labels: {tokenized['labels']}")s
@@ -102,8 +104,6 @@ def train(model_name):
         return tokenized
 
     tokenized_datasets = dataset.map(tokenize_function, batched=True)
-
-    
     # print(tokenized_datasets["test"])
 
     # Define model
@@ -132,7 +132,7 @@ def train(model_name):
         logging_steps=10,
         load_best_model_at_end=True,
         push_to_hub=True,
-        hub_model_id=model_name,
+        hub_model_id=repo_id,
         # remove_unused_columns=False,  # Ensure dataset columns are kept
     )
 
@@ -153,8 +153,8 @@ def train(model_name):
         model.save_pretrained(model_path)
         tokenizer.save_pretrained(model_path)
 
-    # trainer.push_to_hub()
-    # tokenizer.push_to_hub(model_name)
+    trainer.push_to_hub()
+    tokenizer.push_to_hub(repo_id)
 
 
 def main():
@@ -162,15 +162,15 @@ def main():
         description="Train a vulnerability classification model."
     )
     parser.add_argument(
-        "--model-name",
-        dest="model_name",
+        "--repo-id",
+        dest="repo_id",
         required=True,
-        help="Name of the model to upload.",
+        help="The name of the repository you want to push your object to. It should contain your organization name when pushing to a given organization.",
     )
 
     args = parser.parse_args()
 
-    train(args.model_name)
+    train(args.repo_id)
 
 
 if __name__ == "__main__":
