@@ -34,6 +34,6 @@ eproject.cfg
 *.log
 
 emissions.csv
-vulntrain/conf.py
+vulntrain/config/conf.py
 vulnerability/
 

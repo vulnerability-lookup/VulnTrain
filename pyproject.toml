@@ -6,7 +6,7 @@ build-backend = "poetry.core.masonry.api"
 [project]
 name = "VulnTrain"
 version = "0.5.1"
-description = "Generate datasets amd models based on vulnerabilities descriptions from Vulnerability-Lookup."
+description = "Generate datasets amd models based on vulnerabilities data from Vulnerability-Lookup."
 authors = [
     {name = "Cédric Bonhomme",email = "cedric.bonhomme@circl.lu"}
 ]
@@ -33,13 +33,17 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/vulnerability-lookup/VulnTrain"
 Repository = "https://github.com/vulnerability-lookup/VulnTrain"
+Changelog = "https://github.com/vulnerability-lookup/VulnTrain/blob/main/CHANGELOG.md"
 
 
 [project.scripts]
-vulntrain-create-dataset = "vulntrain.create_dataset:main"
-vulntrain-train-dataset = "vulntrain.summarize:main"
-vulntrain-train-classification-dataset = "vulntrain.classify:main"
-vulntrain-validate-text-generation = "vulntrain.validate:main"
+# Commands for datasets generation:
+vulntrain-dataset-generation = "vulntrain.datasets.create_dataset:main"
+# Commands for trainings:
+vulntrain-train-description-generation = "vulntrain.trainers.summarize:main"
+vulntrain-train-classification-dataset = "vulntrain.trainers.classify:main"
+# Commands for validations:
+vulntrain-validate-text-generation = "vulntrain.validators.validate:main"
 
 
 [tool.poetry]

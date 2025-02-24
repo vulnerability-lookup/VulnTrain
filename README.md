@@ -1,6 +1,6 @@
 # VulnTrain
 
-Generate datasets amd models based on vulnerabilities descriptions from
+Generate datasets amd models based on vulnerabilities data from
 [Vulnerability-Lookup](https://github.com/vulnerability-lookup/vulnerability-lookup).
 
 Uses data from the ``vulnerability-lookup:meta`` container such as vulnrichment and FKIE.
