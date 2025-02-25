@@ -18,12 +18,18 @@ Check out the datasets and models on Hugging Face:
 
 ## Usage
 
+Install VulnTrain:
+
+```bash
+$ pipx install VulnTrain
+```
+
 Three types of commands are available:
 
 - **Dataset generation**: Create and prepare datasets.
 - **Model training**: Train models using the prepared datasets.
-  - Train a model for text generation to assist in writing vulnerability descriptions ([example](https://huggingface.co/CIRCL/vulnerability-description-generation-gpt2#how-to-get-started-with-the-model)).
-  - Train a model to classify vulnerabilities by severity.
+  - Train a model for text generation to assist in writing vulnerability descriptions [![Model on HF](https://huggingface.co/datasets/huggingface/badges/resolve/main/model-on-hf-sm-dark.svg)](https://huggingface.co/CIRCL/vulnerability-description-generation-gpt2#how-to-get-started-with-the-model)
+  - Train a model to classify vulnerabilities by severity. 
 - **Model validation**: Assess the performance of trained models.
 
 
@@ -33,12 +39,6 @@ Authenticate to HuggingFace:
 
 ```bash
 huggingface-cli login
-```
-
-Install VulnTrain:
-
-```bash
-$ pipx install VulnTrain
 ```
 
 Then ensures that the kvrocks database of Vulnerability-Lookup is running.
