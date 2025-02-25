@@ -126,11 +126,16 @@ def main():
         help="Comma-separated list of sources (cvelistv5, github)",
     )
     parser.add_argument(
-        "--upload", action="store_true", help="Upload dataset to Hugging Face"
+        "--repo-id",
+        dest="repo_id",
+        default="",
+        help="The name of the repository you want to push your object to. It should contain your organization name when pushing to a given organization.",
     )
-    parser.add_argument("--repo-id", required=False, help="Hugging Face repository ID")
     parser.add_argument(
-        "--commit-message", default="", help="Commit message when publishing"
+        "--commit-message",
+        dest="commit_message",
+        default="",
+        help="Commit message when publishing",
     )
     parser.add_argument(
         "--nb-rows", type=int, default=0, help="Number of rows in the dataset"
@@ -150,7 +155,7 @@ def main():
     )
     print(dataset_dict)
 
-    if args.upload:
+    if args.repo_id:
         if args.commit_message:
             # dataset_dict.push_to_hub(args.repo_id, commit_message=args.commit_message, token=hf_token)
             dataset_dict.push_to_hub(args.repo_id, commit_message=args.commit_message)

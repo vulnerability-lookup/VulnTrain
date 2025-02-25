@@ -18,14 +18,16 @@ Check out the datasets and models on Hugging Face:
 
 ## Usage
 
-Various types of commands are available:
+Three types of commands are available:
 
 - **Dataset generation**: Create and prepare datasets.
-- **Model training**: Train models on the prepared datasets.
-- **Model validation**: Evaluate the performance of the trained model.
+- **Model training**: Train models using the prepared datasets.
+  - Train a model for text generation to assist in writing vulnerability descriptions.
+  - Train a model to classify vulnerabilities by severity.
+- **Model validation**: Assess the performance of trained models.
 
 
-### Generate datasets
+### Dataset generation
 
 Authenticate to HuggingFace:
 
@@ -45,7 +47,7 @@ Then ensures that the kvrocks database of Vulnerability-Lookup is running.
 Creation of datasets:
 
 ```bash
-$ vulntrain-dataset-generation --sources cvelistv5 --nb-rows 10000 --upload --repo-id CIRCL/vulnerability-dataset-10k
+$ vulntrain-dataset-generation --sources cvelistv5 --nb-rows 10000 --repo-id CIRCL/vulnerability-dataset-10k
 Generating train split: 9999 examples [00:00, 177710.74 examples/s]
 DatasetDict({
     train: Dataset({
@@ -65,7 +67,7 @@ README.md: 100%|█████████████████████�
 ```
 
 
-### Train
+### Model training
 
 #### Training for text generation
 
