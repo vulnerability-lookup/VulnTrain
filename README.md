@@ -8,7 +8,7 @@
 A tool for generating diverse datasets and models using vulnerability data from
 [Vulnerability-Lookup](https://github.com/vulnerability-lookup/vulnerability-lookup).
 
-It leverages all vulnerability advisory sources supported by Vulnerability-Lookup to train models effectively, utilizing over one million JSON records.  
+It leverages all vulnerability advisory sources supported by Vulnerability-Lookup to train models, utilizing over one million JSON records.  
 Additionally, data from the ``vulnerability-lookup:meta`` container, including enrichment sources such as vulnrichment and Fraunhofer FKIE, is incorporated to enhance model quality.
 
 Check out the datasets and models on Hugging Face: 
@@ -29,9 +29,8 @@ Three types of commands are available:
 - **Dataset generation**: Create and prepare datasets.
 - **Model training**: Train models using the prepared datasets.
   - Train a model for **text generation** to assist in writing vulnerability descriptions [![Model on HF](https://huggingface.co/datasets/huggingface/badges/resolve/main/model-on-hf-sm-dark.svg)](https://huggingface.co/CIRCL/vulnerability-description-generation-gpt2#how-to-get-started-with-the-model)
-  - Train a model to **classify** vulnerabilities by severity. 
+  - Train a model to **classify** vulnerabilities by severity. [![Model on HF](https://huggingface.co/datasets/huggingface/badges/resolve/main/model-on-hf-sm-dark.svg)](https://huggingface.co/CIRCL/vulnerability-severity-classification-distilbert-base-uncased)
 - **Model validation**: Assess the performance of trained models.
-
 
 ### Dataset generation
 
