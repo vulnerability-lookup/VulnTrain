@@ -1,4 +1,6 @@
 import argparse
+import shutil
+from pathlib import Path
 
 import evaluate
 import numpy as np
@@ -68,12 +70,8 @@ def map_cvss_to_severity(example):
 
 
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
-def train(repo_id):
-    base_model = "distilbert-base-uncased"
-    model_path = "./vulnerability-classify"
-
+def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
     # Load dataset from Hugging Face
-    dataset_id = "CIRCL/vulnerability-scores"
     dataset = load_dataset(dataset_id)
 
     # Map severity labels
@@ -120,7 +118,7 @@ def train(repo_id):
 
     # Define training arguments
     training_args = TrainingArguments(
-        output_dir="./results",
+        output_dir=model_save_dir,
         evaluation_strategy="epoch",
         save_strategy="epoch",
         learning_rate=2e-5,
@@ -150,8 +148,8 @@ def train(repo_id):
     try:
         trainer.train()
     finally:
-        model.save_pretrained(model_path)
-        tokenizer.save_pretrained(model_path)
+        model.save_pretrained(model_save_dir)
+        tokenizer.save_pretrained(model_save_dir)
 
     trainer.push_to_hub()
     tokenizer.push_to_hub(repo_id)
@@ -159,7 +157,22 @@ def train(repo_id):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Train a vulnerability classification model."
+        description="Train a vulnerability classification model with a mapping on the severity."
+    )
+    parser.add_argument(
+        "--base-model",
+        dest="base_model",
+        default="distilbert-base-uncased",
+        choices=[
+            "distilbert-base-uncased",
+        ],
+        help="Base model to use.",
+    )
+    parser.add_argument(
+        "--dataset-id",
+        dest="dataset_id",
+        default="CIRCL/vulnerability-scores",
+        help="Path of the dataset. Local dataset or repository on the HF hub.",
     )
     parser.add_argument(
         "--repo-id",
@@ -167,10 +180,26 @@ def main():
         required=True,
         help="The name of the repository you want to push your object to. It should contain your organization name when pushing to a given organization.",
     )
+    parser.add_argument(
+        "--model-save-dir",
+        dest="model_save_dir",
+        required=True,
+        help="The path to a directory where the tokenizer and the model will be saved.",
+    )
 
     args = parser.parse_args()
 
-    train(args.repo_id)
+    dir_path = Path(args.model_save_dir)
+    if dir_path.exists() and dir_path.is_dir():
+        shutil.rmtree(dir_path)
+
+    print(f"Using base model: {args.base_model}")
+    print(f"Dataset ID: {args.dataset_id}")
+    print(f"Destination Hugging Face repository ID: {args.repo_id}")
+    print(f"Model will be saved to: {args.model_save_dir}")
+    print("Starting the training process…")
+
+    train(args.base_model, args.dataset_id, args.repo_id, args.model_save_dir)
 
 
 if __name__ == "__main__":
