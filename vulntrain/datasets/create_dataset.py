@@ -151,8 +151,11 @@ def main():
     print(dataset_dict)
 
     if args.upload:
-        # dataset_dict.push_to_hub(args.repo_id, commit_message=args.commit_message, token=hf_token)
-        dataset_dict.push_to_hub(args.repo_id)
+        if args.commit_message:
+            # dataset_dict.push_to_hub(args.repo_id, commit_message=args.commit_message, token=hf_token)
+            dataset_dict.push_to_hub(args.repo_id, commit_message=args.commit_message)
+        else:
+            dataset_dict.push_to_hub(args.repo_id)
 
 
 if __name__ == "__main__":

@@ -183,7 +183,7 @@ def main():
     parser.add_argument(
         "--model-save-dir",
         dest="model_save_dir",
-        required=True,
+        default="results",
         help="The path to a directory where the tokenizer and the model will be saved.",
     )
 

@@ -45,7 +45,7 @@ Then ensures that the kvrocks database of Vulnerability-Lookup is running.
 Creation of datasets:
 
 ```bash
-$ vulntrain-create-dataset --nb-rows 10000 --upload --repo-id CIRCL/vulnerability-dataset-10k
+$ vulntrain-dataset-generation --sources cvelistv5 --nb-rows 10000 --upload --repo-id CIRCL/vulnerability-dataset-10k
 Generating train split: 9999 examples [00:00, 177710.74 examples/s]
 DatasetDict({
     train: Dataset({
@@ -73,7 +73,7 @@ For now we are using distilbert-base-uncased (AutoModelForMaskedLM) or gpt2 (Aut
 The goal is to generate text.
 
 ```bash
-$ vulntrain-train-dataset --base-model gpt2 --model-name CIRCL/vulnerability
+$ vulntrain-train-description-generation --base-model gpt2 --dataset-id CIRCL/vulnerability --repo-id CIRCL/vulnerability-description-generation-gpt2
 Using CUDA (Nvidia GPU).
 [codecarbon WARNING @ 13:28:13] Multiple instances of codecarbon are allowed to run at the same time.
 [codecarbon INFO @ 13:28:13] [setup] RAM Tracking...
