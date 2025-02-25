@@ -22,7 +22,7 @@ Three types of commands are available:
 
 - **Dataset generation**: Create and prepare datasets.
 - **Model training**: Train models using the prepared datasets.
-  - Train a model for text generation to assist in writing vulnerability descriptions.
+  - Train a model for text generation to assist in writing vulnerability descriptions ([example](https://huggingface.co/CIRCL/vulnerability-description-generation-gpt2#how-to-get-started-with-the-model)).
   - Train a model to classify vulnerabilities by severity.
 - **Model validation**: Assess the performance of trained models.
 
