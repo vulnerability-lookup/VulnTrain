@@ -47,15 +47,15 @@ Then ensures that the kvrocks database of Vulnerability-Lookup is running.
 Creation of datasets:
 
 ```bash
-$ vulntrain-dataset-generation --sources cvelistv5 --nb-rows 10000 --repo-id CIRCL/vulnerability-dataset-10k
+$ vulntrain-dataset-generation --sources cvelistv5 --repo-id CIRCL/vulnerability-dataset-10k --nb-rows 10000
 Generating train split: 9999 examples [00:00, 177710.74 examples/s]
 DatasetDict({
     train: Dataset({
-        features: ['id', 'title', 'description', 'cpes'],
+        features: ['id', 'title', 'description', 'cpes', 'cvss_v4_0', 'cvss_v3_1', 'cvss_v3_0', 'cvss_v2_0'],
         num_rows: 8999
     })
     test: Dataset({
-        features: ['id', 'title', 'description', 'cpes'],
+        features: ['id', 'title', 'description', 'cpes', 'cvss_v4_0', 'cvss_v3_1', 'cvss_v3_0', 'cvss_v2_0'],
         num_rows: 1000
     })
 })
@@ -66,12 +66,17 @@ Uploading the dataset shards: 100%|███████████████
 README.md: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████| 503/503 [00:00<00:00, 2.34MB/s]
 ```
 
+In this example, the source consists of vulnerability advisories available in the Kvrocks database of Vulnerability-Lookup.
+The script will automatically connect to the database using the Valkey client, generate two datasets (containing up to 10,000 rows), and upload the results to Hugging Face.
+
+It is possible to add the GitHub Advisory Database (GHSA) as a source.
+
 
 ### Model training
 
 #### Training for text generation
 
-For now we are using distilbert-base-uncased (AutoModelForMaskedLM) or gpt2 (AutoModelForCausalLM).
+For now we are using gpt2 (AutoModelForCausalLM) or distilbert-base-uncased (AutoModelForMaskedLM).
 The goal is to generate text.
 
 ```bash
