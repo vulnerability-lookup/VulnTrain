@@ -1,10 +1,11 @@
 import argparse
+import logging
 import shutil
 from pathlib import Path
 
 import evaluate
 import numpy as np
-from codecarbon import track_emissions  # type: ignore[import-untyped]
+from codecarbon import track_emissions
 from datasets import load_dataset
 from transformers import (
     AutoModelForSequenceClassification,
@@ -17,8 +18,12 @@ from transformers import (
 Automatically classify new vulnerabilities based on their descriptions,
 even if they don't have CVSS scores.
 
-Currently using distilbert-base-uncased or bert-base-uncased.
+Currently tested with distilbert-base-uncased and roberta-base.
 """
+
+# Logging setup
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Define severity label mapping
 SEVERITY_MAPPING = {"Low": 0, "Medium": 1, "High": 2, "Critical": 3}
@@ -96,9 +101,6 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
             int(SEVERITY_MAPPING.get(label, -1)) for label in elem["severity_label"]
         ]
 
-        # print(f"Raw severity labels: {elem['severity_label']}")
-        # print(f"Mapped labels: {tokenized['labels']}")s
-
         return tokenized
 
     tokenized_datasets = dataset.map(tokenize_function, batched=True)
@@ -121,17 +123,18 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         output_dir=model_save_dir,
         evaluation_strategy="epoch",
         save_strategy="epoch",
-        learning_rate=2e-5,
-        per_device_train_batch_size=16,
-        per_device_eval_batch_size=16,
+        learning_rate=3e-5,
+        per_device_train_batch_size=8 if "roberta" in base_model else 16,
+        per_device_eval_batch_size=8 if "roberta" in base_model else 16,
         num_train_epochs=5,
         weight_decay=0.01,
         logging_dir="./logs",
         logging_steps=10,
+        save_total_limit=2,
         load_best_model_at_end=True,
         push_to_hub=True,
         hub_model_id=repo_id,
-        # remove_unused_columns=False,  # Ensure dataset columns are kept
+        # remove_unused_columns=False,
     )
 
     # Create Trainer
@@ -163,9 +166,7 @@ def main():
         "--base-model",
         dest="base_model",
         default="distilbert-base-uncased",
-        choices=[
-            "distilbert-base-uncased",
-        ],
+        choices=["distilbert-base-uncased", "roberta-base"],
         help="Base model to use.",
     )
     parser.add_argument(
@@ -193,11 +194,11 @@ def main():
     if dir_path.exists() and dir_path.is_dir():
         shutil.rmtree(dir_path)
 
-    print(f"Using base model: {args.base_model}")
-    print(f"Dataset ID: {args.dataset_id}")
-    print(f"Destination Hugging Face repository ID: {args.repo_id}")
-    print(f"Model will be saved to: {args.model_save_dir}")
-    print("Starting the training process…")
+    logger.info(f"Using base model: {args.base_model}")
+    logger.info(f"Dataset ID: {args.dataset_id}")
+    logger.info(f"Repo ID: {args.repo_id}")
+    logger.info(f"Saving model to: {args.model_save_dir}")
+    logger.info("Starting the training process…")
 
     train(args.base_model, args.dataset_id, args.repo_id, args.model_save_dir)
 
