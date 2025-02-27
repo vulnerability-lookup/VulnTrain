@@ -3,9 +3,9 @@ import shutil
 from pathlib import Path
 
 import torch
-from codecarbon import track_emissions  # type: ignore[import-untyped]
-from datasets import load_dataset  # type: ignore[import-untyped]
-from transformers import (  # type: ignore[import-untyped]
+from codecarbon import track_emissions
+from datasets import load_dataset
+from transformers import (
     AutoModelForCausalLM,
     AutoModelForMaskedLM,
     AutoTokenizer,

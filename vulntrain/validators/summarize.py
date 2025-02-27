@@ -1,6 +1,6 @@
 import argparse
 
-from transformers import pipeline  # type: ignore[import-untyped]
+from transformers import pipeline
 
 
 # https://discuss.huggingface.co/t/how-to-set-max-length-properly-when-using-pipeline/125714

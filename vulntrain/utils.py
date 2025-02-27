@@ -1,7 +1,7 @@
 import json
 
 from markdown_it import MarkdownIt
-from nltk.tokenize import sent_tokenize  # type: ignore[import-untyped]
+from nltk.tokenize import sent_tokenize
 
 
 def sentences(text, num_sentences=5) -> str:

@@ -22,7 +22,9 @@ def main():
         "langchain_experimental 0.0.14 allows an attacker to bypass the CVE-2023-36258 fix and execute arbitrary code via the PALChain in the python exec method.",
     ]
 
-    inputs = tokenizer(vuln_summaries, padding=True, truncation=True, return_tensors="pt")
+    inputs = tokenizer(
+        vuln_summaries, padding=True, truncation=True, return_tensors="pt"
+    )
     with torch.no_grad():
         predictions = model(**inputs).logits  # Get raw logits
 

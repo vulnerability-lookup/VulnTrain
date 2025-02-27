@@ -3,7 +3,7 @@ import json
 from typing import Any, Generator
 
 import valkey
-from datasets import Dataset, DatasetDict  # type: ignore[import-untyped]
+from datasets import Dataset, DatasetDict
 
 from vulntrain.config import hf_token, valkey_host, valkey_port
 from vulntrain.utils import (
