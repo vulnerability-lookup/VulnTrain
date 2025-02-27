@@ -1,5 +1,14 @@
 # Changelog
 
+## Release 1.1.0 (2025-02-27)
+
+### News
+
+- Trainers: Support of roberta-base for the text classifier with improved
+  settings for TrainingArguments.
+- Validators: Validator for severity classification.
+
+
 ## Release 1.0.0 (2025-02-25)
 
 ### News

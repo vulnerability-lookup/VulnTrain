@@ -109,10 +109,28 @@ Using CUDA (Nvidia GPU).
 
 #### Training for classification
 
+```bash
+$ vulntrain-train-severity-classification --help
+usage: vulntrain-train-severity-classification [-h] [--base-model {distilbert-base-uncased,roberta-base}] [--dataset-id DATASET_ID] --repo-id REPO_ID [--model-save-dir MODEL_SAVE_DIR]
 
-- distilbert with CVS scores mapping
-- tf-idf on the vulnerability descriptions.
+Train a vulnerability classification model with a mapping on the severity.
 
+options:
+  -h, --help            show this help message and exit
+  --base-model {distilbert-base-uncased,roberta-base}
+                        Base model to use.
+  --dataset-id DATASET_ID
+                        Path of the dataset. Local dataset or repository on the HF hub.
+  --repo-id REPO_ID     The name of the repository you want to push your object to. It should contain your organization name when pushing to a given organization.
+  --model-save-dir MODEL_SAVE_DIR
+                        The path to a directory where the tokenizer and the model will be saved.
+
+
+$ vulntrain-train-severity-classification --base-model roberta-base --dataset-id CIRCL/vulnerability-scores --repo-id CIRCL/vulnerability-severity-classification-roberta-base
+...
+...
+...
+```
 
 
 ### Validation
