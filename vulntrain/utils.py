@@ -110,7 +110,7 @@ def extract_cvss_from_github_advisory(data) -> dict[str, float]:
 
     # Extract CVSS scores from the 'severity' section
     for severity in data.get("severity", []):
-        match = re.search(r"CVSS:(\d\.\d)", severity.get("type", ""))
+        match = re.search(r"CVSS:(\d\.\d)", severity.get("score", ""))
         if match:
             try:
                 cvss_scores[format_cvss_version(match.group(1))] = severity["score"]
