@@ -563,6 +563,19 @@ test = ["certifi (>=2024)", "cryptography-vectors (==44.0.2)", "pretend (>=0.7)"
 test-randomorder = ["pytest-randomly"]
 
 [[package]]
+name = "cvss"
+version = "3.4"
+description = "CVSS2/3/4 library with interactive calculator for Python 2 and Python 3"
+optional = false
+python-versions = "*"
+groups = ["main"]
+markers = "python_version <= \"3.11\" or python_version >= \"3.12\""
+files = [
+    {file = "cvss-3.4-py2.py3-none-any.whl", hash = "sha256:d9950613758e60820f7fac37ca5f35158712f8f2ea4f6629858a60c4984fe4ef"},
+    {file = "cvss-3.4.tar.gz", hash = "sha256:632353244ba3c58b53355466677edc968b9d7143c317b66271f9fd7939951ee8"},
+]
+
+[[package]]
 name = "datasets"
 version = "3.3.2"
 description = "HuggingFace community-driven open-source library of datasets"
@@ -3198,4 +3211,4 @@ termcolor = ">=2.2.0,<2.4.0"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<4.0"
-content-hash = "712c0e1af4ce571ae1a1c967612d839dbd51fa1f433adcecd11a73a7790cb5b1"
+content-hash = "c178a57abb2b4c5dfc17e14e3cf6ccdd1320833165ef0551929d731599bded05"

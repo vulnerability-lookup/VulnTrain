@@ -1,6 +1,8 @@
 import json
 import re
 
+import cvss
+
 from markdown_it import MarkdownIt
 from nltk.tokenize import sent_tokenize
 
@@ -14,6 +16,26 @@ def strip_markdown(text) -> str:
     md = MarkdownIt()
     parsed = md.parse(text)
     return "".join(token.content for token in parsed if token.type == "inline")
+
+
+def format_cvss_version(version: str) -> str:
+    return f"cvss_v{version.replace('.', '_')}".lower()
+
+
+def cvss_base_score(vector: str, version: str) -> str:
+    """Returns the base code from a CVSS vector."""
+    if version.lower() in ["cvss_v2_0", "cvss_v2"]:
+        c = cvss.CVSS2(vector)
+        return ", ".join([str(score) for score in c.scores()[:1]])
+    elif version.lower() in ["cvss_v4_0", "cvss_v4"]:
+        c = cvss.CVSS4(vector)
+        return str(c.base_score)
+    elif version.lower() in ["cvss_v3", "cvss_v3_0", "cvss_v3_1"]:
+        c = cvss.CVSS3(vector)
+        return ", ".join(
+            [str(score) for score in c.scores()[:1]]
+        )  # slice the list to ignore temporal and environmental scores
+    return vector
 
 
 def extract_cpe(data) -> list[str]:
@@ -59,10 +81,6 @@ def extract_cpe(data) -> list[str]:
 
     vuln_cpes = list(dict.fromkeys(cpe.lower() for cpe in vuln_cpes))
     return vuln_cpes
-
-
-def format_cvss_version(version: str) -> str:
-    return f"cvss_v{version.replace('.', '_')}".lower()
 
 
 def extract_cvss_cve(data) -> dict[str, float]:
@@ -113,7 +131,11 @@ def extract_cvss_from_github_advisory(data) -> dict[str, float]:
         match = re.search(r"CVSS:(\d\.\d)", severity.get("score", ""))
         if match:
             try:
-                cvss_scores[format_cvss_version(match.group(1))] = severity["score"]
+                cvss_scores[format_cvss_version(match.group(1))] = float(
+                    cvss_base_score(
+                        severity["score"], format_cvss_version(match.group(1))
+                    )
+                )
             except Exception:
                 continue
 
