@@ -1,5 +1,12 @@
 # Changelog
 
+## Release 1.1.0 (not-yet-released)
+
+### Changes
+
+- Dataset generation: CVSS are now extracted from GitHub security advisories.
+
+
 ## Release 1.1.0 (2025-02-27)
 
 ### News

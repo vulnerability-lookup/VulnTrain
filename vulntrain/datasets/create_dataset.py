@@ -91,12 +91,18 @@ class VulnExtractor:
         }
 
     def extract_ghsa(self, vuln: dict[str, Any]) -> dict[str, Any]:
+
+        cvss_scores = extract_cvss_from_github_advisory(vuln)
+
         return {
             "id": vuln["id"],
             "title": strip_markdown(vuln.get("summary", "")),
             "description": strip_markdown(vuln.get("details", "")),
             "cpes": [],
-            **extract_cvss_from_github_advisory(vuln),
+            "cvss_v4_0": cvss_scores.get("cvss_v4_0", None),
+            "cvss_v3_1": cvss_scores.get("cvss_v3_1", None),
+            "cvss_v3_0": cvss_scores.get("cvss_v3_0", None),
+            "cvss_v2_0": cvss_scores.get("cvss_v2_0", None),
         }
 
     def __call__(self) -> Generator[dict[str, Any], None, None]:
