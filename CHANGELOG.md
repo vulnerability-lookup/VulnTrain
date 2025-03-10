@@ -4,7 +4,7 @@
 
 ### Changes
 
-- Dataset generation: CVSS are now extracted from GitHub security advisories.
+- Dataset generation: CVSS are now extracted from GitHub and PySec security advisories.
 
 
 ## Release 1.1.0 (2025-02-27)
