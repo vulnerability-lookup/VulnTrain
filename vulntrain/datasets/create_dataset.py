@@ -5,12 +5,13 @@ from typing import Any, Generator
 import valkey
 from datasets import Dataset, DatasetDict
 
-from vulntrain.config import hf_token, valkey_host, valkey_port
+from vulntrain.config import valkey_host, valkey_port
 from vulntrain.utils import (
     strip_markdown,
     extract_cpe,
     extract_cvss_cve,
     extract_cvss_from_github_advisory,
+    extract_cvss_from_pysec,
 )
 
 
@@ -105,13 +106,35 @@ class VulnExtractor:
             "cvss_v2_0": cvss_scores.get("cvss_v2_0", None),
         }
 
+    def extract_pysec(self, vuln: dict[str, Any]) -> dict[str, Any]:
+
+        cvss_scores = extract_cvss_from_pysec(vuln)
+
+        return {
+            "id": vuln["id"],
+            "description": vuln["details"],
+            "cpes": [],
+            "cvss_v4_0": cvss_scores.get("cvss_v4_0", None),
+            "cvss_v3_1": cvss_scores.get("cvss_v3_1", None),
+            "cvss_v3_0": cvss_scores.get("cvss_v3_0", None),
+            "cvss_v2_0": cvss_scores.get("cvss_v2_0", None),
+        }
+
     def __call__(self) -> Generator[dict[str, Any], None, None]:
         count = 0
         for source in self.sources:
+            match source:
+                case "cvelistv5":
+                    extractor = self.extract_cve
+                case "github":
+                    extractor = self.extract_ghsa
+                case "pysec":
+                    extractor = self.extract_pysec
+                case _:
+                    print("No parser for this source.")
+                    continue
+
             for vuln in self.get_all(source, True):
-                extractor = (
-                    self.extract_cve if source == "cvelistv5" else self.extract_ghsa
-                )
                 vuln_data = extractor(vuln)
 
                 if not vuln_data.get("description"):
@@ -129,7 +152,7 @@ def main():
     parser.add_argument(
         "--sources",
         required=True,
-        help="Comma-separated list of sources (cvelistv5, github)",
+        help="Comma-separated list of sources (cvelistv5, github, pysec)",
     )
     parser.add_argument(
         "--repo-id",
@@ -163,7 +186,6 @@ def main():
 
     if args.repo_id:
         if args.commit_message:
-            # dataset_dict.push_to_hub(args.repo_id, commit_message=args.commit_message, token=hf_token)
             dataset_dict.push_to_hub(args.repo_id, commit_message=args.commit_message)
         else:
             dataset_dict.push_to_hub(args.repo_id)

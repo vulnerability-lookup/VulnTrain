@@ -140,3 +140,21 @@ def extract_cvss_from_github_advisory(data) -> dict[str, float]:
                 continue
 
     return cvss_scores
+
+
+def extract_cvss_from_pysec(data) -> dict[str, float]:
+    cvss_scores = {}
+
+    for severity in data.get("severity", []):
+        match = re.search(r"CVSS:(\d\.\d)", severity.get("score", ""))
+        if match:
+            try:
+                cvss_scores[format_cvss_version(match.group(1))] = float(
+                    cvss_base_score(
+                        severity["score"], format_cvss_version(match.group(1))
+                    )
+                )
+            except Exception:
+                continue
+
+    return cvss_scores
