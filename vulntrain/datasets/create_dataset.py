@@ -9,9 +9,11 @@ from vulntrain.config import valkey_host, valkey_port
 from vulntrain.utils import (
     strip_markdown,
     extract_cpe,
+    extract_cpe_csaf,
     extract_cvss_cve,
     extract_cvss_from_github_advisory,
     extract_cvss_from_pysec,
+    extract_cvss_from_csaf,
 )
 
 
@@ -120,6 +122,40 @@ class VulnExtractor:
             "cvss_v2_0": cvss_scores.get("cvss_v2_0", None),
         }
 
+    def extract_csaf(self, vuln: dict[str, Any]) -> dict[str, Any]:
+
+        cvss_scores = extract_cvss_from_csaf(vuln)
+
+        description = ""
+        description = " ".join(
+            [
+                note["text"]
+                for vulnerability in vuln.get("vulnerabilities", [])
+                for note in vulnerability.get("notes", [])
+                if note.get("category") == "summary"
+            ]
+        )
+        if not description:
+            description = next(
+                (
+                    note["text"]
+                    for note in vuln.get("document", {}).get("notes", [])
+                    if note.get("category") == "summary"
+                ),
+                "",
+            )
+
+        return {
+            "id": vuln["document"]["tracking"]["id"],
+            "title": vuln["document"]["title"],
+            "description": description,
+            "cpes": extract_cpe_csaf(vuln),
+            "cvss_v4_0": cvss_scores.get("cvss_v4_0", None),
+            "cvss_v3_1": cvss_scores.get("cvss_v3_1", None),
+            "cvss_v3_0": cvss_scores.get("cvss_v3_0", None),
+            "cvss_v2_0": cvss_scores.get("cvss_v2_0", None),
+        }
+
     def __call__(self) -> Generator[dict[str, Any], None, None]:
         count = 0
         for source in self.sources:
@@ -130,6 +166,8 @@ class VulnExtractor:
                     extractor = self.extract_ghsa
                 case "pysec":
                     extractor = self.extract_pysec
+                case str() as s if s.startswith("csaf_"):
+                    extractor = self.extract_csaf
                 case _:
                     print("No parser for this source.")
                     continue

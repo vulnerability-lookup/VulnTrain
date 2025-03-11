@@ -158,3 +158,51 @@ def extract_cvss_from_pysec(data) -> dict[str, float]:
                 continue
 
     return cvss_scores
+
+
+def extract_cvss_from_csaf(data) -> dict[str, float]:
+    cvss_scores = {}
+
+    for vulnerability in data.get("vulnerabilities", []):
+
+        for score in vulnerability.get("scores", []):
+            for _, value in score.items():
+                if type(value) is dict:
+                    if vector := value.get("vectorString", ""):
+                        match = re.search(r"CVSS:(\d\.\d)", vector)
+                        if match:
+                            try:
+                                cvss_scores[format_cvss_version(match.group(1))] = (
+                                    float(
+                                        cvss_base_score(
+                                            vector, format_cvss_version(match.group(1))
+                                        )
+                                    )
+                                )
+                            except Exception:
+                                continue
+
+    return cvss_scores
+
+
+def extract_cpe_csaf(data):
+    cpe_list = []
+
+    def extract_cpe(branches):
+        """Recursively extract CPEs from product_tree branches."""
+        for branch in branches:
+            product = branch.get("product", {})
+            cpe = product.get("product_identification_helper", {}).get("cpe")
+            if cpe:
+                cpe_list.append(cpe)
+
+            # Check if the branch contains nested branches
+            if "branches" in branch:
+                extract_cpe(branch["branches"])
+
+    # Start extraction from product_tree
+    product_tree = data.get("product_tree", {}).get("branches", [])
+    extract_cpe(product_tree)
+
+    # Print unique CPEs
+    return sorted(set(cpe_list))
