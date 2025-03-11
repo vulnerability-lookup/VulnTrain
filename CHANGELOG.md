@@ -1,6 +1,6 @@
 # Changelog
 
-## Release 1.1.0 (not-yet-released)
+## Release 1.2.0 (2025-03-11)
 
 ### Changes
 
