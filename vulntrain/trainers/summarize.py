@@ -73,7 +73,7 @@ def train(
         per_device_eval_batch_size=8,
         warmup_steps=500,
         weight_decay=0.01,
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
         logging_dir="./logs",

@@ -3235,4 +3235,4 @@ termcolor = ">=2.2.0,<2.4.0"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<4.0"
-content-hash = "c178a57abb2b4c5dfc17e14e3cf6ccdd1320833165ef0551929d731599bded05"
+content-hash = "c629ad5b4db9ff9d97d2b073a8eb436bd284598596a10b47d3336cf87c65b367"

@@ -1,5 +1,12 @@
 # Changelog
 
+## Release 1.3.1 (2025-04-28)
+
+### Changes
+
+- Updated dependencies and fixed issues due to changes in transformers.
+
+
 ## Release 1.3.0 (2025-04-28)
 
 ### Changes
