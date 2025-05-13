@@ -34,13 +34,19 @@ Three types of commands are available:
 
 ### Dataset generation
 
+Make sure you have HuggingFace installed, if you don't, here is the command line to install it :
+
+```bash
+pip install huggingface_hub
+```
+
 Authenticate to HuggingFace:
 
 ```bash
 huggingface-cli login
 ```
 
-Then ensures that the kvrocks database of Vulnerability-Lookup is running.
+Then ensure that the kvrocks database of Vulnerability-Lookup is running.
 
 
 Creation of datasets:
@@ -75,7 +81,7 @@ It is possible to add the GitHub Advisory Database (GHSA) as a source.
 
 #### Training for text generation
 
-For now we are using gpt2 (AutoModelForCausalLM) or distilbert-base-uncased (AutoModelForMaskedLM).
+For now we are using GPT-2 (AutoModelForCausalLM) or distilbert-base-uncased (AutoModelForMaskedLM).
 The goal is to generate text.
 
 ```bash
