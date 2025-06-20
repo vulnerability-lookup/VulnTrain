@@ -15,6 +15,9 @@ Check out the datasets and models on Hugging Face:
 
 [![Model on HF](https://huggingface.co/datasets/huggingface/badges/resolve/main/model-on-hf-xl-dark.svg)](https://huggingface.co/CIRCL)
 
+For more information about the use of AI in Vulnerability-Lookup, please refer to the
+[user manual](https://www.vulnerability-lookup.org/user-manual/ai/).
+
 
 ## Usage
 
