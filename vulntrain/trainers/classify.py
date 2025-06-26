@@ -39,39 +39,20 @@ def compute_metrics(eval_pred):
 
 # Define severity mapping function
 def map_cvss_to_severity(example):
-    def to_float(value):
-        try:
-            return float(value) if value is not None else None
-        except ValueError:
-            return None
+    severity_label = example.get("serverity", "").strip()
 
-    cvss_v4_0 = to_float(example.get("cvss_v4_0"))
-    cvss_v3_1 = to_float(example.get("cvss_v3_1"))
-    cvss_v3_0 = to_float(example.get("cvss_v3_0"))
-    cvss_v2_0 = to_float(example.get("cvss_v2_0"))
-
-    severity_score = next(
-        (
-            score
-            for score in [cvss_v4_0, cvss_v3_1, cvss_v3_0, cvss_v2_0]
-            if score is not None
-        ),
-        None,
-    )
-
-    if severity_score is None:
-        severity_label = "Unknown"
-    elif severity_score >= 9.0:
-        severity_label = "Critical"
-    elif severity_score >= 7.0:
-        severity_label = "High"
-    elif severity_score >= 4.0:
-        severity_label = "Medium"
-    else:
+    if severity_label == "低":
         severity_label = "Low"
+    elif severity_label == "中":
+        severity_label = "Medium"
+    elif severity_label == "高":
+        severity_label = "High"
+    else:
+        severity_label = "Unknown"
 
     example["severity_label"] = severity_label
     return example
+
 
 
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
@@ -96,10 +77,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
             truncation=True,
         )
 
-        # Convert list of severity labels to integers
-        tokenized["labels"] = [
-            int(SEVERITY_MAPPING.get(label, -1)) for label in elem["severity_label"]
-        ]
+        tokenized["labels"] = SEVERITY_MAPPING.get(elem["severity_label"], -1)
 
         return tokenized
 
@@ -160,13 +138,19 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Train a vulnerability classification model with a mapping on the severity."
+        description="Train a vulnerability classification model with a mapping on the severity for the Chinese NVD."
     )
     parser.add_argument(
         "--base-model",
         dest="base_model",
         default="distilbert-base-uncased",
-        choices=["distilbert-base-uncased", "roberta-base"],
+        choices=[
+            "distilbert-base-uncased",
+            "roberta-base",
+            "google-bert/bert-base-chinese",
+            "hfl/chinese-bert-wwm-ext",
+        ],
+
         help="Base model to use.",
     )
     parser.add_argument(
