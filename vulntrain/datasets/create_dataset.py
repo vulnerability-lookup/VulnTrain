@@ -64,6 +64,100 @@ class VulnExtractor:
             if vuln := self.get_vulnerability(vuln_id, with_meta=with_meta):
                 yield vuln
 
+
+    def extract_cve(self, vuln: dict[str, Any]) -> dict[str, Any]:
+            vuln_id = vuln["cveMetadata"]["cveId"]
+            vuln_title = vuln["containers"]["cna"].get("title", "")
+            vuln_description = next(
+                (
+                    desc["value"]
+                    for desc in vuln["containers"]["cna"].get("descriptions", [])
+                    if desc["lang"].startswith("en")
+                ),
+                "",
+            )
+            if not vuln_description:
+                # skip a CVE without description
+                return {}
+
+            vuln_cpes = extract_cpe(vuln)
+            cvss_scores = extract_cvss_cve(vuln)
+
+            return {
+                "id": vuln_id,
+                "title": vuln_title,
+                "description": vuln_description,
+                "cpes": vuln_cpes,
+                "cvss_v4_0": cvss_scores.get("cvss_v4_0", None),
+                "cvss_v3_1": cvss_scores.get("cvss_v3_1", None),
+                "cvss_v3_0": cvss_scores.get("cvss_v3_0", None),
+                "cvss_v2_0": cvss_scores.get("cvss_v2_0", None),
+            }
+
+    def extract_ghsa(self, vuln: dict[str, Any]) -> dict[str, Any]:
+
+        cvss_scores = extract_cvss_from_github_advisory(vuln)
+
+        return {
+            "id": vuln["id"],
+            "title": strip_markdown(vuln.get("summary", "")),
+            "description": strip_markdown(vuln.get("details", "")),
+            "cpes": [],
+            "cvss_v4_0": cvss_scores.get("cvss_v4_0", None),
+            "cvss_v3_1": cvss_scores.get("cvss_v3_1", None),
+            "cvss_v3_0": cvss_scores.get("cvss_v3_0", None),
+            "cvss_v2_0": cvss_scores.get("cvss_v2_0", None),
+        }
+
+    def extract_pysec(self, vuln: dict[str, Any]) -> dict[str, Any]:
+
+        cvss_scores = extract_cvss_from_pysec(vuln)
+
+        return {
+            "id": vuln["id"],
+            "description": vuln["details"],
+            "cpes": [],
+            "cvss_v4_0": cvss_scores.get("cvss_v4_0", None),
+            "cvss_v3_1": cvss_scores.get("cvss_v3_1", None),
+            "cvss_v3_0": cvss_scores.get("cvss_v3_0", None),
+            "cvss_v2_0": cvss_scores.get("cvss_v2_0", None),
+        }
+
+    def extract_csaf(self, vuln: dict[str, Any]) -> dict[str, Any]:
+
+        cvss_scores = extract_cvss_from_csaf(vuln)
+
+        description = ""
+        description = " ".join(
+            [
+                note["text"]
+                for vulnerability in vuln.get("vulnerabilities", [])
+                for note in vulnerability.get("notes", [])
+                if note.get("category") == "summary"
+            ]
+        )
+        if not description:
+            description = next(
+                (
+                    note["text"]
+                    for note in vuln.get("document", {}).get("notes", [])
+                    if note.get("category") == "summary"
+                ),
+                "",
+            )
+
+        return {
+            "id": vuln["document"]["tracking"]["id"],
+            "title": vuln["document"]["title"],
+            "description": description,
+            "cpes": extract_cpe_csaf(vuln),
+            "cvss_v4_0": cvss_scores.get("cvss_v4_0", None),
+            "cvss_v3_1": cvss_scores.get("cvss_v3_1", None),
+            "cvss_v3_0": cvss_scores.get("cvss_v3_0", None),
+            "cvss_v2_0": cvss_scores.get("cvss_v2_0", None),
+        }
+
+
     def extract_cnvd(self, vuln: dict[str, Any]) -> dict[str, Any]:
         vuln_id = vuln.get("number", "")
         vuln_title = vuln.get("title", "").strip()
@@ -85,14 +179,14 @@ class VulnExtractor:
             "cvss_v2_0": None,
 
             "severity": vuln.get("serverity", ""),  # keep typo if present in source
-            "product": vuln.get("products", {}).get("product", ""),
-            "discoverer": vuln.get("discovererName", ""),
-            "patch_name": vuln.get("patchName", ""),
-            "patch_description": vuln.get("patchDescription", ""),
-            "formal_way": vuln.get("formalWay", ""),
-            "submit_time": vuln.get("submitTime", ""),
-            "open_time": vuln.get("openTime", ""),
-            "is_event": vuln.get("isEvent", ""),
+            #"product": vuln.get("products", {}).get("product", ""),
+            #"discoverer": vuln.get("discovererName", ""),
+            #"patch_name": vuln.get("patchName", ""),
+            #"patch_description": vuln.get("patchDescription", ""),
+            #"formal_way": vuln.get("formalWay", ""),
+            #"submit_time": vuln.get("submitTime", ""),
+            #"open_time": vuln.get("openTime", ""),
+            #"is_event": vuln.get("isEvent", ""),
         }
 
 
@@ -100,6 +194,15 @@ class VulnExtractor:
         count = 0
         for source in self.sources:
             match source:
+
+                case "cvelistv5":
+                    extractor = self.extract_cve
+                case "github":
+                    extractor = self.extract_ghsa
+                case "pysec":
+                    extractor = self.extract_pysec
+                case str() as s if s.startswith("csaf_"):
+                    extractor = self.extract_csaf
                 case "cnvd":
                     extractor = self.extract_cnvd
                 case _:
