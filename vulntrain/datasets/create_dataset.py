@@ -162,9 +162,14 @@ class VulnExtractor:
         vuln_id = vuln.get("number", "")
         vuln_title = vuln.get("title", "").strip()
         vuln_description = strip_markdown(vuln.get("description", "").strip())
+        vuln_severity = vuln.get("serverity", "").strip()
 
         if not vuln_description:
             # skip vulnerabilities with no description
+            return {}
+        
+        if not vuln_severity:
+            # skip vulnerabilities with no severity
             return {}
 
         return {
@@ -173,12 +178,12 @@ class VulnExtractor:
             "description": vuln_description,
 
             # Placeholder for CVSS scores (not available in CNVD JSON?)
-            "cvss_v4_0": None,
-            "cvss_v3_1": None,
-            "cvss_v3_0": None,
-            "cvss_v2_0": None,
+            #"cvss_v4_0": None,
+            #"cvss_v3_1": None,
+            #"cvss_v3_0": None,
+            #"cvss_v2_0": None,
 
-            "severity": vuln.get("serverity", ""),  # keep typo if present in source
+            "severity": vuln_severity,  # keep typo if present in source
             #"product": vuln.get("products", {}).get("product", ""),
             #"discoverer": vuln.get("discovererName", ""),
             #"patch_name": vuln.get("patchName", ""),
@@ -206,7 +211,7 @@ class VulnExtractor:
                 case "cnvd":
                     extractor = self.extract_cnvd
                 case _:
-                    print("No parser for this source.")
+                    print(f"No parser for this source {source}.")
                     continue
 
             for vuln in self.get_all(source, True):
