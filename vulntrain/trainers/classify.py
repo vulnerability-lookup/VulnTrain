@@ -60,14 +60,15 @@ def flatten_description(example):
     return example
 
 
+@track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
     dataset = load_dataset(dataset_id)
 
     if not isinstance(dataset, DatasetDict) or "train" not in dataset:
         dataset = dataset.train_test_split(test_size=0.2, seed=42)
 
-    logger.info("Example from raw dataset:")
-    logger.info(dataset["train"][0])
+    # logger.info("Example from raw dataset:")
+    # logger.info(dataset["train"][0])
 
     dataset = dataset.map(map_cvss_to_severity)
 
@@ -77,28 +78,37 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     logger.info(f"Label distribution after filtering: {label_counter}")
 
     if len(dataset["train"]) == 0:
-        raise ValueError("No training data left after filtering. Please check the dataset and label mapping.")
+        raise ValueError(
+            "No training data left after filtering. Please check the dataset and label mapping."
+        )
 
-    logger.info(f"Remaining examples: {len(dataset['train'])}")
-    logger.info("Example after label mapping:")
-    logger.info(dataset["train"][0])
+    # logger.info(f"Remaining examples: {len(dataset['train'])}")
+    # logger.info("Example after label mapping:")
+    # logger.info(dataset["train"][0])
 
-    # --- Ajout nettoyage descriptions ---
     dataset = dataset.map(flatten_description)
-    logger.info("Example after flattening description:")
-    logger.info(dataset["train"][0])
+    # logger.info("Example after flattening description:")
+    # logger.info(dataset["train"][0])
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
 
     def tokenize_function(examples):
-        return tokenizer(
+        tokenized = tokenizer(
             examples["description"],
             padding=True,
             truncation=True,
             max_length=512,
         )
+        tokenized["labels"] = [
+            SEVERITY_MAPPING[label] for label in examples["severity_label"]
+        ]
+        return tokenized
 
-    columns_to_remove = [col for col in dataset["train"].column_names if col not in ["description", "severity_label"]]
+    columns_to_remove = [
+        col
+        for col in dataset["train"].column_names
+        if col not in ["description", "severity_label"]
+    ]
 
     tokenized_datasets = dataset.map(
         tokenize_function,
@@ -129,7 +139,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         load_best_model_at_end=True,
         push_to_hub=True,
         hub_model_id=repo_id,
-        remove_unused_columns=False,
+        # remove_unused_columns=False,
     )
 
     trainer = Trainer(
@@ -151,7 +161,6 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     tokenizer.push_to_hub(repo_id)
 
 
-
 def main():
     parser = argparse.ArgumentParser(
         description="Train a vulnerability classification model with severity mapping for Chinese NVD."
@@ -164,6 +173,7 @@ def main():
             "distilbert-base-uncased",
             "roberta-base",
             "google-bert/bert-base-chinese",
+            "hfl/chinese-macbert-base",
             "hfl/chinese-bert-wwm-ext",
         ],
         help="Base model to use.",

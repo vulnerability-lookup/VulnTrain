@@ -8,12 +8,12 @@ from datasets import Dataset, DatasetDict
 from vulntrain.config import valkey_host, valkey_port
 from vulntrain.utils import (
     strip_markdown,
-    #extract_cpe,
-    #extract_cpe_csaf,
-    #extract_cvss_cve,
-    #extract_cvss_from_github_advisory,
-    #extract_cvss_from_pysec,
-    #extract_cvss_from_csaf,
+    extract_cpe,
+    extract_cpe_csaf,
+    extract_cvss_cve,
+    extract_cvss_from_github_advisory,
+    extract_cvss_from_pysec,
+    extract_cvss_from_csaf,
 )
 
 
@@ -64,35 +64,34 @@ class VulnExtractor:
             if vuln := self.get_vulnerability(vuln_id, with_meta=with_meta):
                 yield vuln
 
-
     def extract_cve(self, vuln: dict[str, Any]) -> dict[str, Any]:
-            vuln_id = vuln["cveMetadata"]["cveId"]
-            vuln_title = vuln["containers"]["cna"].get("title", "")
-            vuln_description = next(
-                (
-                    desc["value"]
-                    for desc in vuln["containers"]["cna"].get("descriptions", [])
-                    if desc["lang"].startswith("en")
-                ),
-                "",
-            )
-            if not vuln_description:
-                # skip a CVE without description
-                return {}
+        vuln_id = vuln["cveMetadata"]["cveId"]
+        vuln_title = vuln["containers"]["cna"].get("title", "")
+        vuln_description = next(
+            (
+                desc["value"]
+                for desc in vuln["containers"]["cna"].get("descriptions", [])
+                if desc["lang"].startswith("en")
+            ),
+            "",
+        )
+        if not vuln_description:
+            # skip a CVE without description
+            return {}
 
-            vuln_cpes = extract_cpe(vuln)
-            cvss_scores = extract_cvss_cve(vuln)
+        vuln_cpes = extract_cpe(vuln)
+        cvss_scores = extract_cvss_cve(vuln)
 
-            return {
-                "id": vuln_id,
-                "title": vuln_title,
-                "description": vuln_description,
-                "cpes": vuln_cpes,
-                "cvss_v4_0": cvss_scores.get("cvss_v4_0", None),
-                "cvss_v3_1": cvss_scores.get("cvss_v3_1", None),
-                "cvss_v3_0": cvss_scores.get("cvss_v3_0", None),
-                "cvss_v2_0": cvss_scores.get("cvss_v2_0", None),
-            }
+        return {
+            "id": vuln_id,
+            "title": vuln_title,
+            "description": vuln_description,
+            "cpes": vuln_cpes,
+            "cvss_v4_0": cvss_scores.get("cvss_v4_0", None),
+            "cvss_v3_1": cvss_scores.get("cvss_v3_1", None),
+            "cvss_v3_0": cvss_scores.get("cvss_v3_0", None),
+            "cvss_v2_0": cvss_scores.get("cvss_v2_0", None),
+        }
 
     def extract_ghsa(self, vuln: dict[str, Any]) -> dict[str, Any]:
 
@@ -157,7 +156,6 @@ class VulnExtractor:
             "cvss_v2_0": cvss_scores.get("cvss_v2_0", None),
         }
 
-
     def extract_cnvd(self, vuln: dict[str, Any]) -> dict[str, Any]:
         vuln_id = vuln.get("number", "")
         vuln_title = vuln.get("title", "").strip()
@@ -167,7 +165,7 @@ class VulnExtractor:
         if not vuln_description:
             # skip vulnerabilities with no description
             return {}
-        
+
         if not vuln_severity:
             # skip vulnerabilities with no severity
             return {}
@@ -176,24 +174,21 @@ class VulnExtractor:
             "id": vuln_id,
             "title": vuln_title,
             "description": vuln_description,
-
             # Placeholder for CVSS scores (not available in CNVD JSON?)
-            #"cvss_v4_0": None,
-            #"cvss_v3_1": None,
-            #"cvss_v3_0": None,
-            #"cvss_v2_0": None,
-
+            # "cvss_v4_0": None,
+            # "cvss_v3_1": None,
+            # "cvss_v3_0": None,
+            # "cvss_v2_0": None,
             "severity": vuln_severity,  # keep typo if present in source
-            #"product": vuln.get("products", {}).get("product", ""),
-            #"discoverer": vuln.get("discovererName", ""),
-            #"patch_name": vuln.get("patchName", ""),
-            #"patch_description": vuln.get("patchDescription", ""),
-            #"formal_way": vuln.get("formalWay", ""),
-            #"submit_time": vuln.get("submitTime", ""),
-            #"open_time": vuln.get("openTime", ""),
-            #"is_event": vuln.get("isEvent", ""),
+            # "product": vuln.get("products", {}).get("product", ""),
+            # "discoverer": vuln.get("discovererName", ""),
+            # "patch_name": vuln.get("patchName", ""),
+            # "patch_description": vuln.get("patchDescription", ""),
+            # "formal_way": vuln.get("formalWay", ""),
+            # "submit_time": vuln.get("submitTime", ""),
+            # "open_time": vuln.get("openTime", ""),
+            # "is_event": vuln.get("isEvent", ""),
         }
-
 
     def __call__(self) -> Generator[dict[str, Any], None, None]:
         count = 0
