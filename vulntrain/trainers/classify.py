@@ -2,11 +2,12 @@ import argparse
 import logging
 import shutil
 from pathlib import Path
+from collections import Counter
 
 import evaluate
 import numpy as np
 from codecarbon import track_emissions
-from datasets import load_dataset
+from datasets import load_dataset, DatasetDict
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
@@ -14,23 +15,16 @@ from transformers import (
     TrainingArguments,
 )
 
-"""
-Automatically classify new vulnerabilities based on their descriptions,
-even if they don't have CVSS scores.
-
-Currently tested with distilbert-base-uncased and roberta-base.
-"""
-
 # Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Define severity label mapping
-SEVERITY_MAPPING = {"Low": 0, "Medium": 1, "High": 2, "Critical": 3}
+SEVERITY_MAPPING = {"Low": 0, "Medium": 1, "High": 2}
 
 
 def compute_metrics(eval_pred):
-    """Compute accuracy and F1-score for model evaluation."""
+    """Compute accuracy for model evaluation."""
     metric = evaluate.load("accuracy")
     logits, labels = eval_pred
     predictions = np.argmax(logits, axis=-1)
@@ -39,7 +33,7 @@ def compute_metrics(eval_pred):
 
 # Define severity mapping function
 def map_cvss_to_severity(example):
-    severity_label = example.get("serverity", "").strip()
+    severity_label = example.get("severity", "").strip()
 
     if severity_label == "低":
         severity_label = "Low"
@@ -54,49 +48,72 @@ def map_cvss_to_severity(example):
     return example
 
 
+def flatten_description(example):
+    desc = example["description"]
+    # Si desc est une liste de strings, join en une seule string
+    if isinstance(desc, list):
+        if all(isinstance(el, str) for el in desc):
+            example["description"] = " ".join(desc)
+        else:
+            # Si liste imbriquée plus complexe, convertis en string brute
+            example["description"] = str(desc)
+    return example
 
-@track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
+
 def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
-    # Load dataset from Hugging Face
     dataset = load_dataset(dataset_id)
 
-    # Map severity labels
+    if not isinstance(dataset, DatasetDict) or "train" not in dataset:
+        dataset = dataset.train_test_split(test_size=0.2, seed=42)
+
+    logger.info("Example from raw dataset:")
+    logger.info(dataset["train"][0])
+
     dataset = dataset.map(map_cvss_to_severity)
 
-    # Filter out entries with no severity_label and with unknown keys
-    dataset = dataset.filter(lambda x: "severity_label" in x)
-    dataset = dataset.filter(lambda x: x["severity_label"] in SEVERITY_MAPPING)
+    dataset = dataset.filter(lambda x: x["severity"] in ["低", "中", "高"])
 
-    # Tokenization with labels
+    label_counter = Counter([ex["severity_label"] for ex in dataset["train"]])
+    logger.info(f"Label distribution after filtering: {label_counter}")
+
+    if len(dataset["train"]) == 0:
+        raise ValueError("No training data left after filtering. Please check the dataset and label mapping.")
+
+    logger.info(f"Remaining examples: {len(dataset['train'])}")
+    logger.info("Example after label mapping:")
+    logger.info(dataset["train"][0])
+
+    # --- Ajout nettoyage descriptions ---
+    dataset = dataset.map(flatten_description)
+    logger.info("Example after flattening description:")
+    logger.info(dataset["train"][0])
+
     tokenizer = AutoTokenizer.from_pretrained(base_model)
 
-    def tokenize_function(elem):
-        tokenized = tokenizer(
-            elem["description"],
-            padding="max_length",
+    def tokenize_function(examples):
+        return tokenizer(
+            examples["description"],
+            padding=True,
             truncation=True,
+            max_length=512,
         )
 
-        tokenized["labels"] = SEVERITY_MAPPING.get(elem["severity_label"], -1)
+    columns_to_remove = [col for col in dataset["train"].column_names if col not in ["description", "severity_label"]]
 
-        return tokenized
+    tokenized_datasets = dataset.map(
+        tokenize_function,
+        batched=True,
+        remove_columns=columns_to_remove,
+    )
 
-    tokenized_datasets = dataset.map(tokenize_function, batched=True)
-    # print(tokenized_datasets["test"])
-
-    # Define model
-    num_labels = len(SEVERITY_MAPPING)  # 4 classes
-
+    num_labels = len(SEVERITY_MAPPING)
     model = AutoModelForSequenceClassification.from_pretrained(
         base_model,
         num_labels=num_labels,
-        id2label={
-            v: k for k, v in SEVERITY_MAPPING.items()
-        },  # Mapping indices to labels
-        label2id=SEVERITY_MAPPING,  # Mapping labels to indices
+        id2label={v: k for k, v in SEVERITY_MAPPING.items()},
+        label2id=SEVERITY_MAPPING,
     )
 
-    # Define training arguments
     training_args = TrainingArguments(
         output_dir=model_save_dir,
         eval_strategy="epoch",
@@ -112,10 +129,9 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         load_best_model_at_end=True,
         push_to_hub=True,
         hub_model_id=repo_id,
-        # remove_unused_columns=False,
+        remove_unused_columns=False,
     )
 
-    # Create Trainer
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -125,7 +141,6 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         compute_metrics=compute_metrics,
     )
 
-    # Train model
     try:
         trainer.train()
     finally:
@@ -136,9 +151,10 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     tokenizer.push_to_hub(repo_id)
 
 
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Train a vulnerability classification model with a mapping on the severity for the Chinese NVD."
+        description="Train a vulnerability classification model with severity mapping for Chinese NVD."
     )
     parser.add_argument(
         "--base-model",
@@ -150,26 +166,25 @@ def main():
             "google-bert/bert-base-chinese",
             "hfl/chinese-bert-wwm-ext",
         ],
-
         help="Base model to use.",
     )
     parser.add_argument(
         "--dataset-id",
         dest="dataset_id",
         default="CIRCL/vulnerability-scores",
-        help="Path of the dataset. Local dataset or repository on the HF hub.",
+        help="Path of the dataset. Local or Hugging Face Hub.",
     )
     parser.add_argument(
         "--repo-id",
         dest="repo_id",
         required=True,
-        help="The name of the repository you want to push your object to. It should contain your organization name when pushing to a given organization.",
+        help="Repository name to push the model to (include org if needed).",
     )
     parser.add_argument(
         "--model-save-dir",
         dest="model_save_dir",
         default="results",
-        help="The path to a directory where the tokenizer and the model will be saved.",
+        help="Directory to save tokenizer and model.",
     )
 
     args = parser.parse_args()
