@@ -86,7 +86,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     # logger.info("Example after label mapping:")
     # logger.info(dataset["train"][0])
 
-    dataset = dataset.map(flatten_description)
+    # dataset = dataset.map(flatten_description)
     # logger.info("Example after flattening description:")
     # logger.info(dataset["train"][0])
 
@@ -124,6 +124,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         label2id=SEVERITY_MAPPING,
     )
 
+    # Define training arguments
     training_args = TrainingArguments(
         output_dir=model_save_dir,
         eval_strategy="epoch",
