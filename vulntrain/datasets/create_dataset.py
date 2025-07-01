@@ -156,10 +156,45 @@ class VulnExtractor:
             "cvss_v2_0": cvss_scores.get("cvss_v2_0", None),
         }
 
+    def extract_cnvd(self, vuln: dict[str, Any]) -> dict[str, Any]:
+        vuln_id = vuln.get("number", "")
+        vuln_title = vuln.get("title", "").strip()
+        vuln_description = strip_markdown(vuln.get("description", "").strip())
+        vuln_severity = vuln.get("serverity", "").strip()
+
+        if not vuln_description:
+            # skip vulnerabilities with no description
+            return {}
+
+        if not vuln_severity:
+            # skip vulnerabilities with no severity
+            return {}
+
+        return {
+            "id": vuln_id,
+            "title": vuln_title,
+            "description": vuln_description,
+            # Placeholder for CVSS scores (not available in CNVD JSON?)
+            # "cvss_v4_0": None,
+            # "cvss_v3_1": None,
+            # "cvss_v3_0": None,
+            # "cvss_v2_0": None,
+            "severity": vuln_severity,  # keep typo if present in source
+            # "product": vuln.get("products", {}).get("product", ""),
+            # "discoverer": vuln.get("discovererName", ""),
+            # "patch_name": vuln.get("patchName", ""),
+            # "patch_description": vuln.get("patchDescription", ""),
+            # "formal_way": vuln.get("formalWay", ""),
+            # "submit_time": vuln.get("submitTime", ""),
+            # "open_time": vuln.get("openTime", ""),
+            # "is_event": vuln.get("isEvent", ""),
+        }
+
     def __call__(self) -> Generator[dict[str, Any], None, None]:
         count = 0
         for source in self.sources:
             match source:
+
                 case "cvelistv5":
                     extractor = self.extract_cve
                 case "github":
@@ -168,8 +203,10 @@ class VulnExtractor:
                     extractor = self.extract_pysec
                 case str() as s if s.startswith("csaf_"):
                     extractor = self.extract_csaf
+                case "cnvd":
+                    extractor = self.extract_cnvd
                 case _:
-                    print("No parser for this source.")
+                    print(f"No parser for this source {source}.")
                     continue
 
             for vuln in self.get_all(source, True):
@@ -190,7 +227,7 @@ def main():
     parser.add_argument(
         "--sources",
         required=True,
-        help="Comma-separated list of sources (cvelistv5, github, pysec)",
+        help="Comma-separated list of sources (cnvd)",
     )
     parser.add_argument(
         "--repo-id",
