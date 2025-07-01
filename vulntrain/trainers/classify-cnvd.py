@@ -1,13 +1,13 @@
 import argparse
 import logging
 import shutil
-from pathlib import Path
 from collections import Counter
+from pathlib import Path
 
 import evaluate
 import numpy as np
 from codecarbon import track_emissions
-from datasets import load_dataset, DatasetDict
+from datasets import DatasetDict, load_dataset
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,

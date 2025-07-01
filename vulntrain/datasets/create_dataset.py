@@ -7,13 +7,13 @@ from datasets import Dataset, DatasetDict
 
 from vulntrain.config import valkey_host, valkey_port
 from vulntrain.utils import (
-    strip_markdown,
     extract_cpe,
     extract_cpe_csaf,
     extract_cvss_cve,
+    extract_cvss_from_csaf,
     extract_cvss_from_github_advisory,
     extract_cvss_from_pysec,
-    extract_cvss_from_csaf,
+    strip_markdown,
 )
 
 
@@ -194,7 +194,6 @@ class VulnExtractor:
         count = 0
         for source in self.sources:
             match source:
-
                 case "cvelistv5":
                     extractor = self.extract_cve
                 case "github":
