@@ -1,5 +1,16 @@
 # Changelog
 
+## Release 1.4.0 (2025-07-01)
+
+### News
+
+This version adds support for creating new AI-ready datasets
+based on the China National Vulnerability Database (CNVD).
+It also introduces a new training module designed to classify
+vulnerabilities using text classification models tailored for CNVD data.
+By [Léa](https://github.com/3LS3-1F)
+
+
 ## Release 1.3.1 (2025-04-28)
 
 ### Changes
