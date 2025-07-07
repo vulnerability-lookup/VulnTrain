@@ -186,5 +186,6 @@ Truncation was not explicitly activated but `max_length` is provided a specific 
 ~~~
 Copyright (c) 2025 Computer Incident Response Center Luxembourg (CIRCL)
 Copyright (C) 2025 Cédric Bonhomme - https://github.com/cedricbonhomme
+Copyright (C) 2025 Léa Ulusan - https://github.com/3LS3-1F
 ~~~
 
