@@ -24,6 +24,11 @@ Three types of commands are available:
 - **Model training**: Train models using the prepared datasets.
 - **Model validation**: Assess the performance of trained models.
 
+For AMD Ryzen GPU:
+
+```bash
+pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/rocm6.4/
+```
 
 ## Datasets
 
