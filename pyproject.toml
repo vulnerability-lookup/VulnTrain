@@ -9,7 +9,7 @@ version = "1.4.0"
 description = "Generate datasets amd models based on vulnerabilities data from Vulnerability-Lookup."
 authors = [
     {name = "Cédric Bonhomme", email = "cedric.bonhomme@circl.lu"},
-    {name = "Lea Ulusan", email = "lea.ulusan@edu.ece.fr"}
+    {name = "Léa Ulusan", email = "lea.ulusan@edu.ece.fr"}
 ]
 license = "GPL-3.0-or-later"
 readme = "README.md"
