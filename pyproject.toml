@@ -8,14 +8,15 @@ name = "VulnTrain"
 version = "1.4.0"
 description = "Generate datasets amd models based on vulnerabilities data from Vulnerability-Lookup."
 authors = [
-    {name = "Cédric Bonhomme",email = "cedric.bonhomme@circl.lu"}
+    {name = "Cédric Bonhomme", email = "cedric.bonhomme@circl.lu"},
+    {name = "Lea Ulusan", email = "lea.ulusan@edu.ece.fr"}
 ]
 license = "GPL-3.0-or-later"
 readme = "README.md"
 
 dynamic = ["classifiers"]
 
-requires-python = ">=3.10,<4.0"
+requires-python = ">=3.11,<4.0"
 dependencies = [
     "nltk (>=3.9.1)",
     "pandas (>=2.2.3)",
@@ -68,6 +69,11 @@ include = [
     "COPYING",
 ]
 
+
+[tool.poetry.group.docs.dependencies]
+sphinx = "^8.2.3"
+sphinx-book-theme = "^1.1.4"
+myst-parser = "^4.0.1"
 
 [tool.mypy]
 python_version = "3.13"
