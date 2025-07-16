@@ -94,7 +94,6 @@ class VulnExtractor:
         }
 
     def extract_ghsa(self, vuln: dict[str, Any]) -> dict[str, Any]:
-
         cvss_scores = extract_cvss_from_github_advisory(vuln)
 
         return {
@@ -109,7 +108,6 @@ class VulnExtractor:
         }
 
     def extract_pysec(self, vuln: dict[str, Any]) -> dict[str, Any]:
-
         cvss_scores = extract_cvss_from_pysec(vuln)
 
         return {
@@ -123,7 +121,6 @@ class VulnExtractor:
         }
 
     def extract_csaf(self, vuln: dict[str, Any]) -> dict[str, Any]:
-
         cvss_scores = extract_cvss_from_csaf(vuln)
 
         description = ""
@@ -174,20 +171,7 @@ class VulnExtractor:
             "id": vuln_id,
             "title": vuln_title,
             "description": vuln_description,
-            # Placeholder for CVSS scores (not available in CNVD JSON?)
-            # "cvss_v4_0": None,
-            # "cvss_v3_1": None,
-            # "cvss_v3_0": None,
-            # "cvss_v2_0": None,
-            "severity": vuln_severity,  # keep typo if present in source
-            # "product": vuln.get("products", {}).get("product", ""),
-            # "discoverer": vuln.get("discovererName", ""),
-            # "patch_name": vuln.get("patchName", ""),
-            # "patch_description": vuln.get("patchDescription", ""),
-            # "formal_way": vuln.get("formalWay", ""),
-            # "submit_time": vuln.get("submitTime", ""),
-            # "open_time": vuln.get("openTime", ""),
-            # "is_event": vuln.get("isEvent", ""),
+            "severity": vuln_severity,
         }
 
     def __call__(self) -> Generator[dict[str, Any], None, None]:
