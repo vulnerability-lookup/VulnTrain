@@ -50,6 +50,69 @@ class VulnExtractor:
     def filter_alive_links(self, urls: list[str]) -> list[str]:
         return [url for url in urls if self.is_url_alive(url)]
 
+
+    def fetch_patch_and_message(self, url: str) -> dict[str, str] | None:
+        if "github.com" in url and "/commit/" in url:
+            return self._fetch_github_patch(url)
+        elif "gitlab.com" in url and "/-/commit/" in url:
+            return self._fetch_gitlab_patch(url)
+        elif "bitbucket.org" in url and "/commits/" in url:
+            return self._fetch_bitbucket_patch(url)
+        else:
+            return None  # Unknown or unsupported platform
+
+
+    def _fetch_github_patch(self, url: str) -> dict[str, str] | None:
+        patch_url = url + ".patch"
+        try:
+            response = requests.get(patch_url, timeout=10)
+            response.raise_for_status()
+            patch_text = response.text.strip()
+
+            lines = patch_text.splitlines()
+            commit_msg_lines = []
+            for line in lines:
+                if line.startswith("Subject:"):
+                    commit_msg_lines.append(line.split("Subject:")[1].strip())
+                elif commit_msg_lines and line.strip() == "":
+                    break
+                elif commit_msg_lines:
+                    commit_msg_lines.append(line.strip())
+
+            commit_message = " ".join(commit_msg_lines)
+            return {
+                "url": url,
+                "platform": "github",
+                "patch_text": patch_text,
+                "commit_message": commit_message
+            }
+        except Exception as e:
+            print(f"GitHub patch fetch failed for {url}: {e}")
+            return None
+
+
+    def _fetch_gitlab_patch(self, url: str) -> dict[str, str] | None:
+        patch_url = url + ".patch"
+        try:
+            response = requests.get(patch_url, timeout=10)
+            response.raise_for_status()
+            patch_text = response.text.strip()
+
+            lines = patch_text.splitlines()
+            subject_lines = [line for line in lines if line.startswith("Subject:")]
+            commit_message = subject_lines[0].replace("Subject:", "").strip() if subject_lines else ""
+
+            return {
+                "url": url,
+                "platform": "gitlab",
+                "patch_text": patch_text,
+                "commit_message": commit_message
+            }
+        except Exception as e:
+            print(f"GitLab patch fetch failed for {url}: {e}")
+            return None
+        
+
     def extract_cve(self, vuln: dict[str, Any]) -> dict[str, Any]:
         try:
             vuln_id = vuln["cveMetadata"]["cveId"]
@@ -63,16 +126,24 @@ class VulnExtractor:
                 "",
             )
 
+            # Collect patch reference URLs
             patch_references = [
                 ref.get("url", "")
                 for ref in vuln["containers"]["cna"].get("references", [])
                 if "tags" in ref and "patch" in ref["tags"]
                 and self.is_url_alive(ref.get("url", ""))
             ]
-            print(f"Found {len(patch_references)} patch references for {vuln_id}")
-            if not patch_references or not vuln_description:
+
+            patches = []
+            for url in patch_references:
+                patch_info = self.fetch_patch_and_message(url)
+                if patch_info:
+                    patches.append(patch_info)
+
+            if not patches:
                 return {}
 
+            # Extract CWE information
             cwe_id = ""
             cwe_desc = ""
             problem_types = vuln["containers"]["cna"].get("problemTypes", [])
@@ -81,17 +152,35 @@ class VulnExtractor:
                 if descriptions:
                     cwe_id = descriptions[0].get("cweId", "")
                     cwe_desc = descriptions[0].get("description", "")
+            
+            ###test###
+            print(f"[EXTRACTED CVE] {vuln_id} → {json.dumps({
+                'title': vuln_title,
+                'description': vuln_description[:100],  # Short preview
+                'patches': [
+                    {
+                        'url': patch['url'],
+                        'platform': patch['platform'],
+                        'commit_message': patch['commit_message'],
+                        'patch_preview': patch['patch_text'][:200]  # First 200 characters
+                    } for patch in patches
+                ]
+            }, indent=2)}")
+            ###test###
 
             return {
                 "id": vuln_id,
                 "title": vuln_title,
                 "description": vuln_description,
                 "references": patch_references,
+                "patches": patches,
                 "cwe_id": cwe_id,
                 "cwe_description": cwe_desc,
             }
+
         except KeyError:
             return {}
+
 
     def extract_ghsa(self, vuln: dict[str, Any]) -> dict[str, Any]:
         references = vuln.get("references", [])
