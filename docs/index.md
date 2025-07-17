@@ -1,13 +1,13 @@
 # VulnTrain documentation
 
-```{contents} Table of Contents
+<!-- ```{contents} Table of Contents
 :depth: 3
-```
+``` -->
 
 ## Presentation
 
-VulnTrain offers a suite of commands to generate diverse AI datasets and train models using comprehensive vulnerability data from Vulnerability-Lookup.
-It harnesses over one million JSON records from all supported advisory sources to build high-quality, domain-specific models.
+VulnTrain provides a set of tools to generate diverse AI-ready datasets and train models using comprehensive vulnerability data from Vulnerability-Lookup.
+It leverages over one million JSON records from multiple advisory sources to build high-quality, domain-specific models.
 
 
 ## Installation
@@ -22,19 +22,24 @@ Three types of commands are available:
 
 - **Dataset generation**: Create and prepare datasets.
 - **Model training**: Train models using the prepared datasets.
-- **Model validation**: Assess the performance of trained models.
+- **Model validation**: Evaluate the performance of trained models.
 
+For AMD Ryzen GPU:
+
+```bash
+pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/rocm6.4/
+```
 
 ## Datasets
 
 
-Make sure you have HuggingFace installed, if you don't, here is the command line to install it:
+Ensure that the ``huggingface_hub`` package is installed:
 
 ```bash
 pip install huggingface_hub
 ```
 
-Authenticate to HuggingFace:
+Then log in to Hugging Face:
 
 ```bash
 huggingface-cli login
@@ -43,36 +48,13 @@ huggingface-cli login
 Then ensure that the kvrocks database of Vulnerability-Lookup is running.
 
 
-Generate the dataset [CIRCL/vulnerability-scores](https://huggingface.co/datasets/CIRCL/vulnerability-scores):
+Example: Generate [CIRCL/vulnerability-scores](https://huggingface.co/datasets/CIRCL/vulnerability-scores) dataset
 
 ```bash
 vulntrain-dataset-generation --sources cvelistv5,github,csaf_redhat,csaf_cisco,csaf_cisa,pysec --repo-id=CIRCL/vulnerability-scores
 ```
 
-Example:
-
-```bash
-$ vulntrain-dataset-generation --sources cvelistv5 --repo-id CIRCL/vulnerability-dataset-10k --nb-rows 10000
-Generating train split: 9999 examples [00:00, 177710.74 examples/s]
-DatasetDict({
-    train: Dataset({
-        features: ['id', 'title', 'description', 'cpes', 'cvss_v4_0', 'cvss_v3_1', 'cvss_v3_0', 'cvss_v2_0'],
-        num_rows: 8999
-    })
-    test: Dataset({
-        features: ['id', 'title', 'description', 'cpes', 'cvss_v4_0', 'cvss_v3_1', 'cvss_v3_0', 'cvss_v2_0'],
-        num_rows: 1000
-    })
-})
-Creating parquet from Arrow format: 100%|██████████████████████████████████████████████████████████████████████████████| 9/9 [00:00<00:00, 49.66ba/s]
-Uploading the dataset shards: 100%|████████████████████████████████████████████████████████████████████████████████████| 1/1 [00:02<00:00,  2.03s/it]
-Creating parquet from Arrow format: 100%|██████████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00, 63.36ba/s]
-Uploading the dataset shards: 100%|████████████████████████████████████████████████████████████████████████████████████| 1/1 [00:01<00:00,  1.19s/it]
-README.md: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████| 503/503 [00:00<00:00, 2.34MB/s]
-```
-
-
-Generate the dataset [CIRCL/Vulnerability/CNVD](https://huggingface.co/datasets/CIRCL/Vulnerability-CNVD):
+Example: Generate [CIRCL/Vulnerability/CNVD](https://huggingface.co/datasets/CIRCL/Vulnerability-CNVD) dataset
 
 ```bash
 vulntrain-dataset-generation --sources cnvd --repo-id=CIRCL/Vulnerability-CNVD
@@ -133,9 +115,6 @@ Using CUDA (Nvidia GPU).
 
 
 
-
-
-
 ## Validation
 
 It is possible to send prompts to a model trained for text generation (descriptions of vulnerabilities).
@@ -170,6 +149,12 @@ Truncation was not explicitly activated but `max_length` is provided a specific 
 [{'generated_text': 'A new vulnerability in OpenSSL allows attackers to cause a Denial of Service (DoS) when receiving a specially crafted SIP message.\n\n\nThis issue affects: OpenSSL versions prior to 1.2.1\n\n\n\n *  OpenSSL 1.2.1 prior to 1.2.1-HF1, which fixes this issue.\n\n *  OpenSSL version 1.2.1 prior to 1.2.1-HF1 and OpenSSL 1.2.2 prior'}]
 ```
 
+## Citation
+
+Bonhomme, C., Dulaunoy, A. (2025). VLAI: A RoBERTa-Based Model for Automated Vulnerability Severity Classification (Version 1.4.0) [Computer software]. https://arxiv.org/abs/2507.03607
+
+Cédric Bonhomme, Alexandre Dulaunoy, “VLAI: A RoBERTa-Based Model for Automated Vulnerability Severity Classification”, preprint for the 25V4C-TC: 2025 Vulnerability Forecasting Technical Colloquia, Darwin College, Cambridge, UK, September 25–26, 2025.  
+https://arxiv.org/abs/2507.03607
 
 
 ## License
