@@ -112,7 +112,9 @@ class VulnExtractor:
             if "tags" in ref and "patch" in ref["tags"]
             and self.is_url_alive(ref.get("url", ""))
         ]
-
+        if not patch_references:
+            return {}
+        
         cwe_id = ""
         cwe_desc = ""
         problem_types = vuln["containers"]["cna"].get("problemTypes", [])
@@ -146,6 +148,8 @@ class VulnExtractor:
             if "type" in ref and "patch" in ref["type"].lower()
             and self.is_url_alive(ref.get("url", ""))
         ]
+        if not patch_references:
+            return {}
 
         cwes = vuln.get("database_specific", {}).get("cwe_ids", [])
 
@@ -167,6 +171,8 @@ class VulnExtractor:
             if "type" in ref and "patch" in ref["type"].lower()
             and self.is_url_alive(ref.get("url", ""))
         ]
+        if not patch_references:
+            return {}
 
         return {
             "id": vuln["id"],
@@ -177,7 +183,6 @@ class VulnExtractor:
     def extract_csaf(self, vuln: dict[str, Any]) -> dict[str, Any]:
         cvss_scores = extract_cvss_from_csaf(vuln)
 
-        # ➤ Extract description (optional, commented)
         description = " ".join(
             [
                 note["text"]
@@ -196,7 +201,6 @@ class VulnExtractor:
                 "",
             )
 
-        # ➤ Extract patch URLs
         references = vuln.get("document", {}).get("references", [])
         raw_patch_links = [
             ref.get("url", "")
@@ -204,8 +208,9 @@ class VulnExtractor:
             if "category" in ref and "patch" in ref["category"].lower()
         ]
         patch_references = self.filter_alive_links(raw_patch_links)
+        if not patch_references:
+            return {}
 
-        # ➤ Extract CWEs
         cwes = []
         for v in vuln.get("vulnerabilities", []):
             cwe = v.get("cwe", {})
@@ -220,12 +225,7 @@ class VulnExtractor:
             "title": vuln["document"]["title"],
             # "description": description,
             "patch_links": patch_references,
-            "cwes": cwes,
-            # "cpes": extract_cpe_csaf(vuln),
-            # "cvss_v4_0": cvss_scores.get("cvss_v4_0", None),
-            # "cvss_v3_1": cvss_scores.get("cvss_v3_1", None),
-            # "cvss_v3_0": cvss_scores.get("cvss_v3_0", None),
-            # "cvss_v2_0": cvss_scores.get("cvss_v2_0", None),
+            "cwes": cwes,   
         }
 
 
