@@ -1,0 +1,22 @@
+cff-version: 1.1.0
+message: "If you use VulnTrain or one of our models, please cite the following work."
+title: "VLAI: A RoBERTa-Based Model for Automated Vulnerability Severity Classification"
+version: 1.4.0
+doi: 10.48550/arXiv.2507.03607
+url: https://www.vulnerability-lookup.org
+repository-code: https://github.com/vulnerability-lookup/VulnTrain
+date-released: 2025-07-04
+abstract: >
+  This paper presents VLAI, a transformer-based model that predicts software vulnerability severity levels 
+  directly from text descriptions. Built on RoBERTa, VLAI is fine-tuned on over 600,000 real-world vulnerabilities 
+  and achieves over 82% accuracy in predicting severity categories, enabling faster and more consistent triage 
+  ahead of manual CVSS scoring. The model and dataset are open-source and integrated into the Vulnerability-Lookup service.
+authors:
+  - family-names: Bonhomme
+    given-names: Cédric
+    orcid: https://orcid.org/0009-0003-7679-0109
+  - family-names: Dulaunoy
+    given-names: Alexandre
+    orcid: https://orcid.org/0000-0002-5437-4652
+  - family-names: Ulusan
+    given-names: Léa
