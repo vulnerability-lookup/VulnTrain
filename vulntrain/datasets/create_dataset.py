@@ -76,11 +76,11 @@ class VulnExtractor:
             "",
         )
         if not vuln_description:
-            # skip a CVE without description
             return {}
 
         vuln_cpes = extract_cpe(vuln)
         cvss_scores = extract_cvss_cve(vuln)
+        patch_commit_url = self.extract_patch_commit_url(vuln)
 
         return {
             "id": vuln_id,
@@ -91,7 +91,9 @@ class VulnExtractor:
             "cvss_v3_1": cvss_scores.get("cvss_v3_1", None),
             "cvss_v3_0": cvss_scores.get("cvss_v3_0", None),
             "cvss_v2_0": cvss_scores.get("cvss_v2_0", None),
+            "patch_commit_url": patch_commit_url,  # Ici
         }
+
 
     def extract_ghsa(self, vuln: dict[str, Any]) -> dict[str, Any]:
         cvss_scores = extract_cvss_from_github_advisory(vuln)
@@ -203,6 +205,14 @@ class VulnExtractor:
                 count += 1
                 if count == self.nb_rows:
                     return
+                
+    def extract_patch_commit_url(self, vuln: dict[str, Any]) -> str | None:
+        references = vuln.get("containers", {}).get("cna", {}).get("references", [])
+        for ref in references:
+            if "patch" in ref.get("tags", []) and ref.get("url", "").startswith("https://github.com"):
+                return ref["url"]
+        return None
+
 
 
 def main():
