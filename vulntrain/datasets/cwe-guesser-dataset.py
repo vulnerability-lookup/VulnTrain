@@ -1,21 +1,62 @@
 import argparse
 import json
+import logging
+import time
+from datetime import datetime
 from typing import Any, Generator
 
-from datasets import Dataset, DatasetDict
 import requests
+from datasets import Dataset, DatasetDict
 
+from vulntrain.config import GITHUB_TOKEN
 from vulntrain.utils import (
-    strip_markdown,
+    extract_cvss_from_csaf,
     extract_cvss_from_github_advisory,
     extract_cvss_from_pysec,
-    extract_cvss_from_csaf,
+    strip_markdown,
 )
 
+# Set up the logger only once
+logger = logging.getLogger("custom_logger")
+logger.setLevel(logging.DEBUG)  # Capture all levels
+
+if not logger.handlers:
+    # File handler
+    file_handler = logging.FileHandler("cwe-dataset.log")
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+def log_message(level: str, message: str, display: bool = False):
+    """Log a message to file (and optionally to console) with a given level."""
+    level = level.lower()
+    log_func = {
+        "debug": logger.debug,
+        "info": logger.info,
+        "warning": logger.warning,
+        "error": logger.error,
+        "critical": logger.critical
+    }.get(level)
+
+    if log_func is None:
+        raise ValueError(f"Invalid log level: {level}")
+
+    log_func(message)
+
+    if display:
+        print(f"{datetime.now().isoformat()} - {level.upper()} - {message}")
+
+
+HEADERS = {
+    "Authorization": f"token {GITHUB_TOKEN}"
+}
+
+
 class VulnExtractor:
-    def __init__(self, sources: list[str], nb_rows: int):
+    def __init__(self, sources: list[str], nb_rows: int, max_retries: int = 3):
         self.sources = sources
         self.nb_rows = nb_rows
+        self.max_retries = max_retries
 
     def get_all(self, source: str, with_meta: bool = False) -> Generator[dict[str, Any], None, None]:
         page = 1
@@ -23,49 +64,65 @@ class VulnExtractor:
 
         while True:
             url = f"https://vulnerability.circl.lu/api/vulnerability/last/{source}/{per_page}?page={page}"
-            try:
-                response = requests.get(url, headers={"accept": "application/json"}, timeout=10)
-                response.raise_for_status()
-                data = response.json()
+            retries = 0
 
-                if not data:
-                    break  # Stop if empty page
+            while retries < self.max_retries:
+                try:
+                    response = requests.get(url, headers={"accept": "application/json"}, timeout=10)
+                    response.raise_for_status()
+                    data = response.json()
 
-                for vuln in data:
-                    yield vuln
+                    if not data:
+                        return  # Stop if empty page
 
-                page += 1  
+                    for vuln in data:
+                        yield vuln
 
-            except requests.RequestException as e:
-                print(f"Error fetching page {page} from source '{source}': {e}")
-                break
+                    page += 1
+                    break  # Exit retry loop
+
+                except requests.exceptions.Timeout:
+                    retries += 1
+                    wait = 2 ** retries
+                    print(f"[Timeout] Retrying page {page} from '{source}' in {wait}s (attempt {retries}/{self.max_retries})")
+                    time.sleep(wait)
+
+                except requests.exceptions.RequestException as e:
+                    print(f"[Error] Failed to fetch page {page} from '{source}': {e}")
+                    return  # Do not retry on other errors
+
 
     def is_url_alive(self, url: str, timeout: int = 5) -> bool:
         try:
             response = requests.head(url, timeout=timeout, allow_redirects=True)
+            if response.status_code != 200:
+                log_message("error", f"[{url}] - is_url_alive - {response.reason}", display=False)
             return response.status_code == 200
         except requests.RequestException:
             return False
+
 
     def filter_alive_links(self, urls: list[str]) -> list[str]:
         return [url for url in urls if self.is_url_alive(url)]
 
 
     def fetch_patch_and_message(self, url: str) -> dict[str, str] | None:
-        if "github.com" in url and "/commit/" in url:
+        if "github.com" in url and "/commit/" in url and self.is_url_alive(url):
             return self._fetch_github_patch(url)
-        elif "gitlab.com" in url and "/-/commit/" in url:
+        elif "gitlab.com" in url and "/-/commit/" in url and self.is_url_alive(url):
             return self._fetch_gitlab_patch(url)
-        elif "bitbucket.org" in url and "/commits/" in url:
-            return self._fetch_bitbucket_patch(url)
+        # elif "bitbucket.org" in url and "/commits/" in url:
+        #     return self._fetch_bitbucket_patch(url)
         else:
             return None  # Unknown or unsupported platform
 
 
     def _fetch_github_patch(self, url: str) -> dict[str, str] | None:
-        patch_url = url + ".patch"
+        patch_url = url if url.endswith(".patch") else url + ".patch"
         try:
-            response = requests.get(patch_url, timeout=10)
+            response = requests.get(patch_url, headers=HEADERS, timeout=10)
+            if response.status_code != 200:
+                log_message("error", f"[{patch_url}] - _fetch_github_patch - {response.reason}", display=False)
             response.raise_for_status()
             patch_text = response.text.strip()
 
@@ -87,14 +144,16 @@ class VulnExtractor:
                 "commit_message": commit_message
             }
         except Exception as e:
-            print(f"GitHub patch fetch failed for {url}: {e}")
+            log_message("error", f"[{patch_url}] - _fetch_github_patch - {e}", display=False)
             return None
 
 
     def _fetch_gitlab_patch(self, url: str) -> dict[str, str] | None:
-        patch_url = url + ".patch"
+        patch_url = url if url.endswith(".patch") else url + ".patch"
         try:
             response = requests.get(patch_url, timeout=10)
+            if response.status_code != 200:
+                log_message("error", f"[{patch_url}] - _fetch_gitlab_patch - {response.reason}", display=False)
             response.raise_for_status()
             patch_text = response.text.strip()
 
@@ -131,7 +190,6 @@ class VulnExtractor:
                 ref.get("url", "")
                 for ref in vuln["containers"]["cna"].get("references", [])
                 if "tags" in ref and "patch" in ref["tags"]
-                and self.is_url_alive(ref.get("url", ""))
             ]
 
             patches = []
@@ -154,18 +212,18 @@ class VulnExtractor:
                     cwe_desc = descriptions[0].get("description", "")
             
             ###test###
-            print(f"[EXTRACTED CVE] {vuln_id} → {json.dumps({
-                'title': vuln_title,
-                'description': vuln_description[:100],  # Short preview
-                'patches': [
-                    {
-                        'url': patch['url'],
-                        'platform': patch['platform'],
-                        'commit_message': patch['commit_message'],
-                        'patch_preview': patch['patch_text'][:200]  # First 200 characters
-                    } for patch in patches
-                ]
-            }, indent=2)}")
+            # print(f"[EXTRACTED CVE] {vuln_id} → {json.dumps({
+            #     'title': vuln_title,
+            #     'description': vuln_description[:100],  # Short preview
+            #     'patches': [
+            #         {
+            #             'url': patch['url'],
+            #             'platform': patch['platform'],
+            #             'commit_message': patch['commit_message'],
+            #             'patch_preview': patch['patch_text'][:200]  # First 200 characters
+            #         } for patch in patches
+            #     ]
+            # }, indent=2)}")
             ###test###
 
             return {
@@ -189,7 +247,6 @@ class VulnExtractor:
             ref.get("url", "")
             for ref in references
             if "type" in ref and "patch" in ref["type"].lower()
-            and self.is_url_alive(ref.get("url", ""))
         ]
         if not patch_references:
             return {}
@@ -210,7 +267,6 @@ class VulnExtractor:
             ref.get("url", "")
             for ref in references
             if "type" in ref and "patch" in ref["type"].lower()
-            and self.is_url_alive(ref.get("url", ""))
         ]
         if not patch_references:
             return {}
@@ -288,18 +344,19 @@ class VulnExtractor:
                         vuln_data = extractor(vuln)
 
                         if not vuln_data or not vuln_data.get("description"):
-                            error_file.write(json.dumps(vuln) + "\n")
+                            # error_file.write(json.dumps(vuln) + "\n")
                             continue
 
-                        success_file.write(json.dumps(vuln_data) + "\n")
+                        # success_file.write(json.dumps(vuln_data) + "\n")
                         yield vuln_data
 
                         count += 1
+                        print(f"{count} {vuln_data.get('id')}")
                         if self.nb_rows and count >= self.nb_rows:
                             return
                     except Exception as e:
                         print(f"Error processing vulnerability: {e}")
-                        error_file.write(json.dumps(vuln) + "\n")
+                        # error_file.write(json.dumps(vuln) + "\n")
 
 def main():
     parser = argparse.ArgumentParser(description="Dataset generation.")

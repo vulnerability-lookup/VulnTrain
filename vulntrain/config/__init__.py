@@ -30,9 +30,15 @@ try:
     valkey_host = conf.valkey_host
     valkey_port = conf.valkey_port
 except AttributeError as e:
-    raise Exception(f"Missing configuration variable: {e}")
+    # raise Exception(f"Missing configuration variable: {e}")
+    pass
 
 try:
-    hf_token = conf.hf_token
+    HF_TOKEN = conf.HF_TOKEN
 except Exception:
-    hf_token = ""
+    HF_TOKEN = ""
+
+try:
+    GITHUB_TOKEN = conf.GITHUB_TOKEN
+except Exception:
+    GITHUB_TOKEN = ""
