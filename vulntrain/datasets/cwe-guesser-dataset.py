@@ -1,8 +1,9 @@
 import argparse
 import json
-from typing import Any, Generator
+import logging
+from typing import Any, Generator, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from datasets import Dataset, DatasetDict
 import requests
 
 from vulntrain.utils import (
@@ -12,10 +13,13 @@ from vulntrain.utils import (
     extract_cvss_from_csaf,
 )
 
+logging.basicConfig(level=logging.INFO)
+
 class VulnExtractor:
-    def __init__(self, sources: list[str], nb_rows: int):
+    def __init__(self, sources: list[str], nb_rows: int, max_workers: int = 16):
         self.sources = sources
         self.nb_rows = nb_rows
+        self.executor = ThreadPoolExecutor(max_workers=max_workers)
 
     def get_all(self, source: str, with_meta: bool = False) -> Generator[dict[str, Any], None, None]:
         page = 1
@@ -27,17 +31,13 @@ class VulnExtractor:
                 response = requests.get(url, headers={"accept": "application/json"}, timeout=10)
                 response.raise_for_status()
                 data = response.json()
-
                 if not data:
-                    break  # Stop if empty page
-
+                    break
                 for vuln in data:
                     yield vuln
-
-                page += 1  
-
+                page += 1
             except requests.RequestException as e:
-                print(f"Error fetching page {page} from source '{source}': {e}")
+                logging.warning(f"Error fetching page {page} from source '{source}': {e}")
                 break
 
     def is_url_alive(self, url: str, timeout: int = 5) -> bool:
@@ -48,102 +48,77 @@ class VulnExtractor:
             return False
 
     def filter_alive_links(self, urls: list[str]) -> list[str]:
-        return [url for url in urls if self.is_url_alive(url)]
+        futures = {self.executor.submit(self.is_url_alive, url): url for url in urls}
+        alive = []
+        for future in as_completed(futures):
+            url = futures[future]
+            try:
+                if future.result():
+                    alive.append(url)
+            except Exception:
+                pass
+        return alive
 
-
-    def fetch_patch_and_message(self, url: str) -> dict[str, str] | None:
+    def fetch_patch_and_message(self, url: str) -> Optional[dict[str, str]]:
         if "github.com" in url and "/commit/" in url:
-            return self._fetch_github_patch(url)
+            return self._fetch_patch_generic(url, "github")
         elif "gitlab.com" in url and "/-/commit/" in url:
-            return self._fetch_gitlab_patch(url)
+            return self._fetch_patch_generic(url, "gitlab")
         elif "bitbucket.org" in url and "/commits/" in url:
-            return self._fetch_bitbucket_patch(url)
-        else:
-            return None  # Unknown or unsupported platform
+            return self._fetch_patch_generic(url, "bitbucket")
+        return None
 
-
-    def _fetch_github_patch(self, url: str) -> dict[str, str] | None:
-        patch_url = url + ".patch"
+    def _fetch_patch_generic(self, url: str, platform: str) -> Optional[dict[str, str]]:
+        patch_url = url + ".diff"
         try:
             response = requests.get(patch_url, timeout=10)
             response.raise_for_status()
             patch_text = response.text.strip()
-
-            lines = patch_text.splitlines()
-            commit_msg_lines = []
-            for line in lines:
-                if line.startswith("Subject:"):
-                    commit_msg_lines.append(line.split("Subject:")[1].strip())
-                elif commit_msg_lines and line.strip() == "":
-                    break
-                elif commit_msg_lines:
-                    commit_msg_lines.append(line.strip())
-
-            commit_message = " ".join(commit_msg_lines)
+            commit_message = ""  # No commit message in .diff
             return {
                 "url": url,
-                "platform": "github",
+                "platform": platform,
                 "patch_text": patch_text,
                 "commit_message": commit_message
             }
         except Exception as e:
-            print(f"GitHub patch fetch failed for {url}: {e}")
+            logging.warning(f"{platform} patch fetch failed: {url} | {e}")
             return None
 
-
-    def _fetch_gitlab_patch(self, url: str) -> dict[str, str] | None:
-        patch_url = url + ".patch"
-        try:
-            response = requests.get(patch_url, timeout=10)
-            response.raise_for_status()
-            patch_text = response.text.strip()
-
-            lines = patch_text.splitlines()
-            subject_lines = [line for line in lines if line.startswith("Subject:")]
-            commit_message = subject_lines[0].replace("Subject:", "").strip() if subject_lines else ""
-
-            return {
-                "url": url,
-                "platform": "gitlab",
-                "patch_text": patch_text,
-                "commit_message": commit_message
-            }
-        except Exception as e:
-            print(f"GitLab patch fetch failed for {url}: {e}")
-            return None
-        
+    def _parallel_fetch_patches(self, urls: list[str]) -> list[dict[str, str]]:
+        futures = {self.executor.submit(self.fetch_patch_and_message, url): url for url in urls}
+        results = []
+        for future in as_completed(futures):
+            try:
+                patch = future.result()
+                if patch:
+                    results.append(patch)
+            except Exception:
+                continue
+        return results
 
     def extract_cve(self, vuln: dict[str, Any]) -> dict[str, Any]:
         try:
             vuln_id = vuln["cveMetadata"]["cveId"]
             vuln_title = vuln["containers"]["cna"].get("title", "")
             vuln_description = next(
-                (
-                    desc["value"]
-                    for desc in vuln["containers"]["cna"].get("descriptions", [])
-                    if desc["lang"].startswith("en")
-                ),
+                (desc["value"]
+                 for desc in vuln["containers"]["cna"].get("descriptions", [])
+                 if desc["lang"].startswith("en")),
                 "",
             )
 
-            # Collect patch reference URLs
-            patch_references = [
+            patch_urls = [
                 ref.get("url", "")
                 for ref in vuln["containers"]["cna"].get("references", [])
                 if "tags" in ref and "patch" in ref["tags"]
-                and self.is_url_alive(ref.get("url", ""))
             ]
-
-            patches = []
-            for url in patch_references:
-                patch_info = self.fetch_patch_and_message(url)
-                if patch_info:
-                    patches.append(patch_info)
+            patch_urls = self.filter_alive_links(patch_urls)
+            patches = self._parallel_fetch_patches(patch_urls)
 
             if not patches:
                 return {}
 
-            # Extract CWE information
             cwe_id = ""
             cwe_desc = ""
             problem_types = vuln["containers"]["cna"].get("problemTypes", [])
@@ -152,101 +127,76 @@ class VulnExtractor:
                 if descriptions:
                     cwe_id = descriptions[0].get("cweId", "")
                     cwe_desc = descriptions[0].get("description", "")
-            
-            ###test###
-            print(f"[EXTRACTED CVE] {vuln_id} → {json.dumps({
-                'title': vuln_title,
-                'description': vuln_description[:100],  # Short preview
-                'patches': [
-                    {
-                        'url': patch['url'],
-                        'platform': patch['platform'],
-                        'commit_message': patch['commit_message'],
-                        'patch_preview': patch['patch_text'][:200]  # First 200 characters
-                    } for patch in patches
-                ]
-            }, indent=2)}")
-            ###test###
 
             return {
                 "id": vuln_id,
                 "title": vuln_title,
                 "description": vuln_description,
-                "references": patch_references,
+                "references": patch_urls,
                 "patches": patches,
                 "cwe_id": cwe_id,
                 "cwe_description": cwe_desc,
             }
-
-        except KeyError:
+        except Exception as e:
+            logging.error(f"extract_cve failed: {e}")
             return {}
-
 
     def extract_ghsa(self, vuln: dict[str, Any]) -> dict[str, Any]:
-        references = vuln.get("references", [])
-
-        patch_references = [
+        refs = vuln.get("references", [])
+        patch_urls = [
             ref.get("url", "")
-            for ref in references
+            for ref in refs
             if "type" in ref and "patch" in ref["type"].lower()
-            and self.is_url_alive(ref.get("url", ""))
         ]
-        if not patch_references:
+        patch_urls = self.filter_alive_links(patch_urls)
+        if not patch_urls:
             return {}
-
         cwes = vuln.get("database_specific", {}).get("cwe_ids", [])
-
         return {
             "id": vuln.get("id", ""),
             "title": strip_markdown(vuln.get("summary", "")),
             "cwes": cwes,
-            "patch_links": patch_references,
+            "patch_links": patch_urls,
         }
 
     def extract_pysec(self, vuln: dict[str, Any]) -> dict[str, Any]:
-        references = vuln.get("references", [])
-
-        patch_references = [
+        refs = vuln.get("references", [])
+        patch_urls = [
             ref.get("url", "")
-            for ref in references
+            for ref in refs
             if "type" in ref and "patch" in ref["type"].lower()
-            and self.is_url_alive(ref.get("url", ""))
         ]
-        if not patch_references:
+        patch_urls = self.filter_alive_links(patch_urls)
+        if not patch_urls:
             return {}
-
         return {
             "id": vuln["id"],
-            "patch_links": patch_references,
+            "patch_links": patch_urls,
         }
 
     def extract_csaf(self, vuln: dict[str, Any]) -> dict[str, Any]:
         description = " ".join(
-            [
-                note["text"]
-                for vulnerability in vuln.get("vulnerabilities", [])
-                for note in vulnerability.get("notes", [])
-                if note.get("category") == "summary"
-            ]
+            note["text"]
+            for vulnerability in vuln.get("vulnerabilities", [])
+            for note in vulnerability.get("notes", [])
+            if note.get("category") == "summary"
         )
         if not description:
             description = next(
-                (
-                    note["text"]
-                    for note in vuln.get("document", {}).get("notes", [])
-                    if note.get("category") == "summary"
-                ),
+                (note["text"]
+                 for note in vuln.get("document", {}).get("notes", [])
+                 if note.get("category") == "summary"),
                 "",
             )
 
         references = vuln.get("document", {}).get("references", [])
-        raw_patch_links = [
+        patch_urls = [
             ref.get("url", "")
             for ref in references
             if "category" in ref and "patch" in ref["category"].lower()
         ]
-        patch_references = self.filter_alive_links(raw_patch_links)
-        if not patch_references:
+        patch_urls = self.filter_alive_links(patch_urls)
+        if not patch_urls:
             return {}
 
         cwes = []
@@ -262,7 +212,7 @@ class VulnExtractor:
             "id": vuln["document"]["tracking"]["id"],
             "title": vuln["document"]["title"],
             "description": description,
-            "patch_links": patch_references,
+            "patch_links": patch_urls,
             "cwes": cwes,
         }
 
@@ -270,54 +220,45 @@ class VulnExtractor:
         count = 0
         with open("vulns_success.jsonl", "w") as success_file, open("vulns_error.jsonl", "w") as error_file:
             for source in self.sources:
-                match source:
-                    case "cvelistv5":
-                        extractor = self.extract_cve
-                    case "github":
-                        extractor = self.extract_ghsa
-                    case "pysec":
-                        extractor = self.extract_pysec
-                    case str() as s if s.startswith("csaf_"):
-                        extractor = self.extract_csaf
-                    case _:
-                        print("No parser for this source.")
-                        continue
+                extractor = {
+                    "cvelistv5": self.extract_cve,
+                    "github": self.extract_ghsa,
+                    "pysec": self.extract_pysec,
+                }.get(source) or (self.extract_csaf if source.startswith("csaf_") else None)
 
-                for vuln in self.get_all(source, with_meta=False):
+                if not extractor:
+                    logging.warning(f"No parser for source '{source}'")
+                    continue
+
+                for vuln in self.get_all(source):
                     try:
                         vuln_data = extractor(vuln)
-
                         if not vuln_data or not vuln_data.get("description"):
                             error_file.write(json.dumps(vuln) + "\n")
                             continue
-
                         success_file.write(json.dumps(vuln_data) + "\n")
                         yield vuln_data
-
                         count += 1
                         if self.nb_rows and count >= self.nb_rows:
                             return
                     except Exception as e:
-                        print(f"Error processing vulnerability: {e}")
+                        logging.error(f"Error processing vulnerability: {e}")
                         error_file.write(json.dumps(vuln) + "\n")
 
 def main():
     parser = argparse.ArgumentParser(description="Dataset generation.")
     parser.add_argument(
-        "--sources",
-        required=True,
-        help="Comma-separated list of sources (cvelistv5, github, pysec, csaf_xxx)",
+        "--sources", required=True,
+        help="Comma-separated list of sources (cvelistv5, github, pysec, csaf_xxx)"
     )
     parser.add_argument(
-        "--nb-rows", type=int, default=0, help="Number of rows in the dataset (0 = all)"
+        "--nb-rows", type=int, default=0,
+        help="Number of rows in the dataset (0 = all)"
     )
-
     args = parser.parse_args()
-
     sources = args.sources.split(",")
     extractor = VulnExtractor(sources, args.nb_rows)
-
-    list(extractor())  
+    list(extractor())
 
 if __name__ == "__main__":
     main()
