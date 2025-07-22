@@ -69,21 +69,43 @@ class VulnExtractor:
         return None
 
     def _fetch_patch_generic(self, url: str, platform: str) -> Optional[dict[str, str]]:
-        patch_url = url + ".diff"
-        try:
-            response = requests.get(patch_url, timeout=10)
-            response.raise_for_status()
-            patch_text = response.text.strip()
-            commit_message = ""  # No commit message in .diff
-            return {
-                "url": url,
-                "platform": platform,
-                "patch_text": patch_text,
-                "commit_message": commit_message
-            }
-        except Exception as e:
-            logging.warning(f"{platform} patch fetch failed: {url} | {e}")
+        if url.endswith(".patch") or url.endswith(".diff"):
+            logging.warning(f"URL already has patch suffix, skipping extra append: {url}")
             return None
+
+        for suffix in [".patch", ".diff"]:
+            patch_url = url + suffix
+            try:
+                response = requests.get(patch_url, timeout=10)
+                response.raise_for_status()
+                patch_text = response.text.strip()
+
+                # Extract commit message
+                lines = patch_text.splitlines()
+                commit_lines = []
+                capture = False
+                for line in lines:
+                    if line.startswith("diff --git"):
+                        break
+                    if capture:
+                        commit_lines.append(line)
+                    elif line.startswith("Date:"):
+                        capture = True  # Start capturing after the "Date:" line
+
+                # Remove leading spaces from commit message lines
+                commit_message = "\n".join(l.strip() for l in commit_lines).strip()
+
+                return {
+                    "url": url,
+                    "platform": platform,
+                    "patch_text": patch_text,
+                    "commit_message": commit_message,
+                }
+            except Exception as e:
+                logging.warning(f"{platform} patch fetch failed with {suffix}: {patch_url} | {e}")
+        return None
+
+
 
     def _parallel_fetch_patches(self, urls: list[str]) -> list[dict[str, str]]:
         futures = {self.executor.submit(self.fetch_patch_and_message, url): url for url in urls}
