@@ -1,5 +1,22 @@
 # Changelog
 
+## Release 1.5.0 (not-yet-released)
+
+### News
+
+- A documentation is now available.
+  ca6d6e2c5f64b7cb8c021a8dafe38a342c71464b
+
+### Changes
+
+- Model generation: Added a boolean parameter in map_cvss_to_severity
+  in order to switch between using the first non-null CVSS score
+  or the mean of all available CVSS scores.
+  ff6616e1023f02836ecb26e50e0c315ec6558895
+- Dataset generation: Removed useless keys in extract_cnvd
+  b7d6948c2130d004d3df037d3db82a219c8a206e
+
+
 ## Release 1.4.0 (2025-07-01)
 
 ### News
