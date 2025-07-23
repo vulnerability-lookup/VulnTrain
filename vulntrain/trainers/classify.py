@@ -38,26 +38,26 @@ def compute_metrics(eval_pred):
 
 
 # Define severity mapping function
-def map_cvss_to_severity(example):
+def map_cvss_to_severity(example, use_mean_score=False):
     def to_float(value):
         try:
             return float(value) if value is not None else None
         except ValueError:
             return None
 
-    cvss_v4_0 = to_float(example.get("cvss_v4_0"))
-    cvss_v3_1 = to_float(example.get("cvss_v3_1"))
-    cvss_v3_0 = to_float(example.get("cvss_v3_0"))
-    cvss_v2_0 = to_float(example.get("cvss_v2_0"))
+    scores = [
+        to_float(example.get("cvss_v4_0")),
+        to_float(example.get("cvss_v3_1")),
+        to_float(example.get("cvss_v3_0")),
+        to_float(example.get("cvss_v2_0")),
+    ]
 
-    severity_score = next(
-        (
-            score
-            for score in [cvss_v4_0, cvss_v3_1, cvss_v3_0, cvss_v2_0]
-            if score is not None
-        ),
-        None,
-    )
+    filtered_scores = [s for s in scores if s is not None]
+
+    if use_mean_score and filtered_scores:
+        severity_score = sum(filtered_scores) / len(filtered_scores)
+    else:
+        severity_score = filtered_scores[0] if filtered_scores else None
 
     if severity_score is None:
         severity_label = "Unknown"
