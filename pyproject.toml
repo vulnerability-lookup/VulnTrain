@@ -75,6 +75,11 @@ sphinx = "^8.2.3"
 sphinx-book-theme = "^1.1.4"
 myst-parser = "^4.0.1"
 
+
+[tool.poetry.group.docs]
+optional = true
+
+
 [tool.mypy]
 python_version = "3.13"
 check_untyped_defs = true
