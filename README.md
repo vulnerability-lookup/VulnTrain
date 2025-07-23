@@ -40,6 +40,21 @@ Three types of commands are available:
 Check out the [documentation](docs/) for more information.
 
 
+### How to cite
+
+Bonhomme, C., & Dulaunoy, A. (2025). VLAI: A RoBERTa-Based Model for Automated Vulnerability Severity Classification (Version 1.4.0) [Computer software]. https://doi.org/10.48550/arXiv.2507.03607
+
+```bibtex
+@misc{bonhomme2025vlai,
+    title={VLAI: A RoBERTa-Based Model for Automated Vulnerability Severity Classification},
+    author={Cédric Bonhomme and Alexandre Dulaunoy},
+    year={2025},
+    eprint={2507.03607},
+    archivePrefix={arXiv},
+    primaryClass={cs.CR}
+}
+```
+
 
 ## License
 
