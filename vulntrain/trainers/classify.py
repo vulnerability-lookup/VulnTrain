@@ -38,26 +38,65 @@ def compute_metrics(eval_pred):
 
 
 # Define severity mapping function
-def map_cvss_to_severity(example, use_mean_score=False):
+def map_cvss_to_severity(example, score_strategy="first"):
+    """
+    Map a CVSS score to a severity label and add it to the example.
+
+    Parameters
+    ----------
+    example : dict
+        A dictionary containing CVSS scores. Possible keys include:
+        - "cvss_v4_0"
+        - "cvss_v3_1"
+        - "cvss_v3_0"
+        - "cvss_v2_0"
+
+    score_strategy : str, optional
+        Strategy to select the CVSS score to use. Options are:
+        - "first"  : Use the first non-null score as it appears in the CVE data (original field order).
+        - "latest" : Use the score from the most recent CVSS version available 
+                     (v4.0 → v3.1 → v3.0 → v2.0).
+        - "mean"   : Compute the arithmetic mean of all available non-null scores.
+
+    Returns
+    -------
+    dict
+        The input `example` dictionary with an added "severity_label" field,
+        which can be one of: "Critical", "High", "Medium", "Low", or "Unknown".
+    """
     def to_float(value):
         try:
             return float(value) if value is not None else None
         except ValueError:
             return None
 
-    scores = [
-        to_float(example.get("cvss_v4_0")),
-        to_float(example.get("cvss_v3_1")),
-        to_float(example.get("cvss_v3_0")),
-        to_float(example.get("cvss_v2_0")),
-    ]
+    version_priority = ["cvss_v4_0", "cvss_v3_1", "cvss_v3_0", "cvss_v2_0"]
 
-    filtered_scores = [s for s in scores if s is not None]
+    if score_strategy == "first":
+        for key, value in example.items():
+            score = to_float(value)
+            if score is not None:
+                severity_score = score
+                break
+        else:
+            severity_score = None
 
-    if use_mean_score and filtered_scores:
-        severity_score = sum(filtered_scores) / len(filtered_scores)
+    elif score_strategy == "latest":
+        for key in version_priority:
+            score = to_float(example.get(key))
+            if score is not None:
+                severity_score = score
+                break
+        else:
+            severity_score = None
+
+    elif score_strategy == "mean":
+        scores = [to_float(example.get(k)) for k in version_priority]
+        filtered_scores = [s for s in scores if s is not None]
+        severity_score = sum(filtered_scores) / len(filtered_scores) if filtered_scores else None
+
     else:
-        severity_score = filtered_scores[0] if filtered_scores else None
+        raise ValueError(f"Unknown score_strategy: {score_strategy}")
 
     if severity_score is None:
         severity_label = "Unknown"
