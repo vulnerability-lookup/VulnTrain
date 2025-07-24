@@ -28,8 +28,8 @@ if not logger.handlers:
 def log(level: str, message: str, display: bool = False):
     level = level.lower()
     getattr(logger, level)(message)
-    if display:
-        print(f"{datetime.now().isoformat()} - {level.upper()} - {message}")
+    #if display:
+        #print(f"{datetime.now().isoformat()} - {level.upper()} - {message}")
 
 # Constants 
 
@@ -75,9 +75,13 @@ class VulnExtractor:
     def is_url_alive(self, url: str, timeout: int = 5) -> bool:
         try:
             response = requests.head(url, timeout=timeout, allow_redirects=True)
-            return response.status_code == 200
-        except requests.RequestException:
+            alive = response.status_code == 200
+            log("info", f"Checked URL {url}: alive={alive}", display=True)
+            return alive
+        except requests.RequestException as e:
+            log("warning", f"URL check failed for {url}: {e}", display=True)
             return False
+
 
     def filter_alive_links(self, urls: list[str]) -> list[str]:
         futures = {self.executor.submit(self.is_url_alive, url): url for url in urls}
@@ -104,6 +108,8 @@ class VulnExtractor:
             response = requests.get(patch_url, headers=headers, timeout=DEFAULT_TIMEOUT)
             response.raise_for_status()
             patch_text = response.text.strip()
+            patch_text_b64 = base64.b64encode(patch_text.encode("utf-8")).decode("utf-8")
+
 
             lines = patch_text.splitlines()
             commit_msg_lines = []
@@ -116,10 +122,11 @@ class VulnExtractor:
                     commit_msg_lines.append(line.strip())
 
             commit_message = " ".join(commit_msg_lines)
+            print(f"Encoded patch (first 100 chars): {patch_text_b64[:100]}...")
             return {
                 "url": url,
                 "platform": platform,
-                "patch_text": base64.b64encode(patch_text.encode("utf-8")).decode("utf-8"),
+                "patch_text_b64": patch_text_b64,
                 "commit_message": commit_message
             }
         except Exception as e:
@@ -145,6 +152,7 @@ class VulnExtractor:
             desc = next((d["value"] for d in vuln["containers"]["cna"].get("descriptions", []) if d["lang"].startswith("en")), "")
 
             patch_urls = [ref.get("url", "") for ref in vuln["containers"]["cna"].get("references", []) if "tags" in ref and "patch" in ref["tags"]]
+            patch_urls = patch_urls[:5]  # just test first 5 URLs
             patch_urls = self.filter_alive_links(patch_urls)
             patches = self._parallel_fetch_patches(patch_urls)
 
@@ -230,6 +238,7 @@ class VulnExtractor:
         }
 
     def __call__(self) -> Generator[dict[str, Any], None, None]:
+        print("Starting extraction loop")
         count = 0
         for source in self.sources:
             extractor = {
