@@ -5,10 +5,11 @@ import time
 import base64 
 import os
 from datetime import datetime
-from typing import Any, Generator, Optional
+from typing import Any, Dict, Generator, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datasets import load_dataset  
 
+from typing import Any, Dict, List, Optional, Generator
 import requests
 
 from vulntrain.config import GITHUB_TOKEN
@@ -127,7 +128,7 @@ class VulnExtractor:
             print(f"Encoded patch (first 100 chars): {patch_text_b64[:100]}...")
             return {
                 "url": url,
-                "platform": platform,
+                #"platform": platform,
                 "patch_text_b64": patch_text_b64,
                 "commit_message": commit_message
             }
@@ -147,14 +148,17 @@ class VulnExtractor:
                 continue
         return results
 
-    def extract_cve(self, vuln: dict[str, Any]) -> dict[str, Any]:
+    def extract_cve(self, vuln: Dict[str, Any]) -> Dict[str, Any]:
         try:
             vuln_id = vuln["cveMetadata"]["cveId"]
             title = vuln["containers"]["cna"].get("title", "")
             desc = next((d["value"] for d in vuln["containers"]["cna"].get("descriptions", []) if d["lang"].startswith("en")), "")
 
-            patch_urls = [ref.get("url", "") for ref in vuln["containers"]["cna"].get("references", []) if "tags" in ref and "patch" in ref["tags"]]
-            #patch_urls = patch_urls[:5]  # just test first 5 URLs
+            patch_urls = [
+                ref.get("url", "") 
+                for ref in vuln["containers"]["cna"].get("references", []) 
+                if "tags" in ref and "patch" in ref["tags"]
+            ]
             patch_urls = self.filter_alive_links(patch_urls)
             patches = self._parallel_fetch_patches(patch_urls)
 
@@ -164,22 +168,26 @@ class VulnExtractor:
             cwe_id, cwe_desc = "", ""
             problem_types = vuln["containers"]["cna"].get("problemTypes", [])
             if problem_types and problem_types[0].get("descriptions"):
-                cwe_id = problem_types[0]["descriptions"][0].get("cweId", "") #only taking first CWE ID
-                cwe_desc = problem_types[0]["descriptions"][0].get("description", "")
+                cwe_id = problem_types[0]["descriptions"][0].get("cweId", "").strip()
+                cwe_desc = problem_types[0]["descriptions"][0].get("description", "").strip()
+
+            if cwe_id and (cwe_desc.startswith(cwe_id) or cwe_id in cwe_desc):
+                cwe = cwe_desc
+            else:
+                cwe = f"{cwe_id} - {cwe_desc}".strip(" -")
 
             return {
                 "id": vuln_id,
                 "title": title,
                 "description": desc,
-                "references": patch_urls,
                 "patches": patches,
-                "cwe_id": cwe_id,
-                "cwe_description": cwe_desc
+                "cwe": cwe
             }
 
         except Exception as e:
             log("error", f"extract_cve failed: {e}")
             return {}
+
 
     def extract_ghsa(self, vuln: dict[str, Any]) -> dict[str, Any]:
         refs = vuln.get("references", [])
@@ -195,36 +203,49 @@ class VulnExtractor:
             "patch_links": patch_urls,
         }
 
-    def extract_csaf(self, vuln: dict[str, Any]) -> dict[str, Any]:
+
+    def extract_csaf(self, vuln: Dict[str, Any]) -> Dict[str, Any]:
         description = " ".join(
             note["text"]
             for v in vuln.get("vulnerabilities", [])
             for note in v.get("notes", [])
             if note.get("category") == "summary"
         ) or next(
-            (note["text"] for note in vuln.get("document", {}).get("notes", []) if note.get("category") == "summary"),
+            (
+                note["text"]
+                for note in vuln.get("document", {}).get("notes", [])
+                if note.get("category") == "summary"
+            ),
             ""
         )
 
         refs = vuln.get("document", {}).get("references", [])
-        patch_urls = [ref.get("url", "") for ref in refs if "category" in ref and "patch" in ref["category"].lower()]
+        patch_urls = [
+            ref.get("url", "")
+            for ref in refs
+            if "category" in ref and "patch" in ref["category"].lower()
+        ]
         patch_urls = self.filter_alive_links(patch_urls)
 
         if not patch_urls:
             return {}
 
-        cwes = [
-            {"id": c.get("id", ""), "name": c.get("name", "")}
-            for v in vuln.get("vulnerabilities", [])
-            if (c := v.get("cwe", {}))
-        ]
+        cwes = []
+        for v in vuln.get("vulnerabilities", []):
+            cwe = v.get("cwe", {})
+            cwe_id = cwe.get("id", "").strip()
+            cwe_name = cwe.get("name", "").strip()
+            if cwe_id and (cwe_name.startswith(cwe_id) or cwe_id in cwe_name):
+                cwes.append(cwe_name)
+            else:
+                cwes.append(f"{cwe_id} - {cwe_name}".strip(" -"))
 
         return {
             "id": vuln["document"]["tracking"]["id"],
             "title": vuln["document"]["title"],
             "description": description,
             "patch_links": patch_urls,
-            "cwes": cwes,
+            "cwe": cwes
         }
 
 
@@ -271,10 +292,23 @@ class VulnExtractor:
 
 
 # Main 
-
+from datasets import Dataset
 def main():
     if os.path.exists("data.jsonl"):
         os.remove("data.jsonl")
+    
+    '''#Reset the dataset on Hugging Face Hub   
+    empty_dataset = Dataset.from_dict({
+        "id": [],
+        "title": [],
+        "description": [],
+        "patches": [],
+        "cwe_id": [],
+        "cwe_description": []
+    })
+    empty_dataset.push_to_hub("CIRCL/vulnerability-cwe-patch", commit_message="Reset without 'references'")
+'''
+    
     parser = argparse.ArgumentParser(description="Vulnerability Dataset Extractor")
     parser.add_argument("--sources", required=True, help="Comma-separated sources (cvelistv5, github, csaf_*)")
     parser.add_argument("--nb-rows", type=int, default=0, help="Max number of vulnerabilities to process (0=all)")
