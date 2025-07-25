@@ -6,6 +6,7 @@ import base64
 from datetime import datetime
 from typing import Any, Generator, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datasets import load_dataset  
 
 import requests
 
@@ -162,7 +163,7 @@ class VulnExtractor:
             cwe_id, cwe_desc = "", ""
             problem_types = vuln["containers"]["cna"].get("problemTypes", [])
             if problem_types and problem_types[0].get("descriptions"):
-                cwe_id = problem_types[0]["descriptions"][0].get("cweId", "")
+                cwe_id = problem_types[0]["descriptions"][0].get("cweId", "") #only taking first CWE ID
                 cwe_desc = problem_types[0]["descriptions"][0].get("description", "")
 
             return {
@@ -190,18 +191,6 @@ class VulnExtractor:
             "id": vuln.get("id", ""),
             "title": strip_markdown(vuln.get("summary", "")),
             "cwes": vuln.get("database_specific", {}).get("cwe_ids", []),
-            "patch_links": patch_urls,
-        }
-
-    def extract_pysec(self, vuln: dict[str, Any]) -> dict[str, Any]:
-        refs = vuln.get("references", [])
-        patch_urls = [ref.get("url", "") for ref in refs if "type" in ref and "patch" in ref["type"].lower()]
-        patch_urls = self.filter_alive_links(patch_urls)
-        if not patch_urls:
-            return {}
-
-        return {
-            "id": vuln["id"],
             "patch_links": patch_urls,
         }
 
@@ -237,6 +226,7 @@ class VulnExtractor:
             "cwes": cwes,
         }
 
+
     def __call__(self) -> Generator[dict[str, Any], None, None]:
         print("Starting extraction loop")
         count = 0
@@ -244,7 +234,7 @@ class VulnExtractor:
             extractor = {
                 "cvelistv5": self.extract_cve,
                 "github": self.extract_ghsa,
-                "pysec": self.extract_pysec,
+                #"pysec": self.extract_pysec,
             }.get(source) or (self.extract_csaf if source.startswith("csaf_") else None)
 
             if not extractor:
@@ -256,19 +246,34 @@ class VulnExtractor:
                     vuln_data = extractor(vuln)
                     if not vuln_data or not vuln_data.get("description"):
                         continue
+
+                    # Save each vuln to JSONL
+                    with open("data.jsonl", "a", encoding="utf-8") as f:
+                        json.dump(vuln_data, f)
+                        f.write("\n")
+
                     yield vuln_data
                     count += 1
+                    print(f"[{count}] Saved: {vuln_data.get('id')}")
                     log("info", f"{count} - Extracted: {vuln_data.get('id')}", display=True)
+
+                    #pushing to Hugging Face every 10 examples
+                    if count % 10 == 0:
+                        print(f"Pushing to Hugging Face Hub at count={count}...")
+                        dataset = load_dataset("json", data_files="data.jsonl")["train"]
+                        dataset.push_to_hub("CIRCL/vulnerability-cwe-patch")
+
                     if self.nb_rows and count >= self.nb_rows:
                         return
                 except Exception as e:
                     log("error", f"Error processing vulnerability: {e}")
 
+
 # Main 
 
 def main():
     parser = argparse.ArgumentParser(description="Vulnerability Dataset Extractor")
-    parser.add_argument("--sources", required=True, help="Comma-separated sources (cvelistv5, github, pysec, csaf_*)")
+    parser.add_argument("--sources", required=True, help="Comma-separated sources (cvelistv5, github, csaf_*)")
     parser.add_argument("--nb-rows", type=int, default=0, help="Max number of vulnerabilities to process (0=all)")
     args = parser.parse_args()
 
