@@ -3,6 +3,7 @@ import json
 import logging
 import time
 import base64 
+import os
 from datetime import datetime
 from typing import Any, Generator, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -153,7 +154,7 @@ class VulnExtractor:
             desc = next((d["value"] for d in vuln["containers"]["cna"].get("descriptions", []) if d["lang"].startswith("en")), "")
 
             patch_urls = [ref.get("url", "") for ref in vuln["containers"]["cna"].get("references", []) if "tags" in ref and "patch" in ref["tags"]]
-            patch_urls = patch_urls[:5]  # just test first 5 URLs
+            #patch_urls = patch_urls[:5]  # just test first 5 URLs
             patch_urls = self.filter_alive_links(patch_urls)
             patches = self._parallel_fetch_patches(patch_urls)
 
@@ -257,8 +258,8 @@ class VulnExtractor:
                     print(f"[{count}] Saved: {vuln_data.get('id')}")
                     log("info", f"{count} - Extracted: {vuln_data.get('id')}", display=True)
 
-                    #pushing to Hugging Face every 10 examples
-                    if count % 10 == 0:
+                    #pushing to Hugging Face every 50 examples
+                    if count % 50 == 0:
                         print(f"Pushing to Hugging Face Hub at count={count}...")
                         dataset = load_dataset("json", data_files="data.jsonl")["train"]
                         dataset.push_to_hub("CIRCL/vulnerability-cwe-patch")
@@ -272,6 +273,8 @@ class VulnExtractor:
 # Main 
 
 def main():
+    if os.path.exists("data.jsonl"):
+        os.remove("data.jsonl")
     parser = argparse.ArgumentParser(description="Vulnerability Dataset Extractor")
     parser.add_argument("--sources", required=True, help="Comma-separated sources (cvelistv5, github, csaf_*)")
     parser.add_argument("--nb-rows", type=int, default=0, help="Max number of vulnerabilities to process (0=all)")
