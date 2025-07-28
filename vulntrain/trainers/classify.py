@@ -3,151 +3,110 @@ import logging
 import shutil
 from pathlib import Path
 
-import evaluate
 import numpy as np
-from codecarbon import track_emissions
+from sklearn.preprocessing import MultiLabelBinarizer
 from datasets import load_dataset
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
     Trainer,
     TrainingArguments,
+    DataCollatorWithPadding,
 )
-
-"""
-Automatically classify new vulnerabilities based on their descriptions,
-even if they don't have CVSS scores.
-
-Currently tested with distilbert-base-uncased and roberta-base.
-"""
+from codecarbon import track_emissions
+import evaluate
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Define severity label mapping
-SEVERITY_MAPPING = {"Low": 0, "Medium": 1, "High": 2, "Critical": 3}
-
 
 def compute_metrics(eval_pred):
     """Compute accuracy and F1-score for model evaluation."""
-    metric = evaluate.load("accuracy")
+    accuracy = evaluate.load("accuracy")
+    f1 = evaluate.load("f1")
+
     logits, labels = eval_pred
     predictions = np.argmax(logits, axis=-1)
-    return metric.compute(predictions=predictions, references=labels)
 
-
-# Define severity mapping function
-def map_cvss_to_severity(example):
-    def to_float(value):
-        try:
-            return float(value) if value is not None else None
-        except ValueError:
-            return None
-
-    cvss_v4_0 = to_float(example.get("cvss_v4_0"))
-    cvss_v3_1 = to_float(example.get("cvss_v3_1"))
-    cvss_v3_0 = to_float(example.get("cvss_v3_0"))
-    cvss_v2_0 = to_float(example.get("cvss_v2_0"))
-
-    severity_score = next(
-        (
-            score
-            for score in [cvss_v4_0, cvss_v3_1, cvss_v3_0, cvss_v2_0]
-            if score is not None
-        ),
-        None,
-    )
-
-    if severity_score is None:
-        severity_label = "Unknown"
-    elif severity_score >= 9.0:
-        severity_label = "Critical"
-    elif severity_score >= 7.0:
-        severity_label = "High"
-    elif severity_score >= 4.0:
-        severity_label = "Medium"
-    else:
-        severity_label = "Low"
-
-    example["severity_label"] = severity_label
-    return example
+    acc = accuracy.compute(predictions=predictions, references=labels)
+    f1_score = f1.compute(predictions=predictions, references=labels, average="macro")
+    return {**acc, **f1_score}
 
 
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
-    # Load dataset from Hugging Face
+    # Load dataset
     dataset = load_dataset(dataset_id)
 
-    # Map severity labels
-    dataset = dataset.map(map_cvss_to_severity)
+    # Filter out samples without CWE
+    dataset = dataset.filter(lambda x: x.get("cwe") and len(x["cwe"]) > 0)
 
-    # Filter out entries with no severity_label and with unknown keys
-    dataset = dataset.filter(lambda x: "severity_label" in x)
-    dataset = dataset.filter(lambda x: x["severity_label"] in SEVERITY_MAPPING)
+    # Build list of unique CWE labels
+    all_cwes = [
+        cwe for row in dataset["train"]["cwe"]
+        for cwe in (row if isinstance(row, list) else [row])
+    ]
+    unique_cwes = sorted(set(all_cwes))
+    logger.info(f"Found {len(unique_cwes)} unique CWE labels.")
 
-    # Tokenization with labels
+    cwe_to_id = {cwe: idx for idx, cwe in enumerate(unique_cwes)}
+    id_to_cwe = {idx: cwe for cwe, idx in cwe_to_id.items()}
+
+    # Encode first CWE as label
+    def encode_example(example):
+        first_cwe = example["cwe"][0] if isinstance(example["cwe"], list) else example["cwe"]
+        example["label"] = cwe_to_id[first_cwe]
+        return example
+
+    dataset = dataset.map(encode_example)
+
     tokenizer = AutoTokenizer.from_pretrained(base_model)
 
-    def tokenize_function(elem):
-        tokenized = tokenizer(
-            elem["description"],
+    def tokenize_function(example):
+        return tokenizer(
+            example["description"],
             padding="max_length",
             truncation=True,
+            max_length=512,
         )
 
-        # Convert list of severity labels to integers
-        tokenized["labels"] = [
-            int(SEVERITY_MAPPING.get(label, -1)) for label in elem["severity_label"]
-        ]
-
-        return tokenized
-
-    tokenized_datasets = dataset.map(tokenize_function, batched=True)
-    # print(tokenized_datasets["test"])
-
-    # Define model
-    num_labels = len(SEVERITY_MAPPING)  # 4 classes
+    tokenized_dataset = dataset.map(tokenize_function, batched=True)
+    tokenized_dataset = tokenized_dataset.rename_column("label", "labels")
 
     model = AutoModelForSequenceClassification.from_pretrained(
         base_model,
-        num_labels=num_labels,
-        id2label={
-            v: k for k, v in SEVERITY_MAPPING.items()
-        },  # Mapping indices to labels
-        label2id=SEVERITY_MAPPING,  # Mapping labels to indices
+        num_labels=len(cwe_to_id),
+        id2label=id_to_cwe,
+        label2id=cwe_to_id,
     )
 
-    # Define training arguments
     training_args = TrainingArguments(
         output_dir=model_save_dir,
-        eval_strategy="epoch",
+        evaluation_strategy="epoch",
         save_strategy="epoch",
         learning_rate=3e-5,
-        per_device_train_batch_size=8 if "roberta" in base_model else 16,
-        per_device_eval_batch_size=8 if "roberta" in base_model else 16,
-        num_train_epochs=5,
+        per_device_train_batch_size=16,
+        per_device_eval_batch_size=16,
+        num_train_epochs=4,
         weight_decay=0.01,
         logging_dir="./logs",
-        logging_steps=10,
-        save_total_limit=2,
+        logging_steps=20,
         load_best_model_at_end=True,
         push_to_hub=True,
         hub_model_id=repo_id,
-        # remove_unused_columns=False,
     )
 
-    # Create Trainer
     trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=tokenized_datasets["train"],
-        eval_dataset=tokenized_datasets["test"],
+        train_dataset=tokenized_dataset["train"],
+        eval_dataset=tokenized_dataset["test"],
         tokenizer=tokenizer,
+        data_collator=DataCollatorWithPadding(tokenizer),
         compute_metrics=compute_metrics,
     )
 
-    # Train model
     try:
         trainer.train()
     finally:
@@ -159,35 +118,28 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Train a vulnerability classification model with a mapping on the severity."
-    )
+    parser = argparse.ArgumentParser(description="Train a vulnerability classifier using CWE labels.")
     parser.add_argument(
         "--base-model",
-        dest="base_model",
         default="distilbert-base-uncased",
         choices=["distilbert-base-uncased", "roberta-base"],
-        help="Base model to use.",
+        help="Base transformer model to use.",
     )
     parser.add_argument(
         "--dataset-id",
-        dest="dataset_id",
-        default="CIRCL/vulnerability-scores",
-        help="Path of the dataset. Local dataset or repository on the HF hub.",
+        required=True,
+        help="Hugging Face dataset repo ID or local dataset path (must have 'cwe' and 'description').",
     )
     parser.add_argument(
         "--repo-id",
-        dest="repo_id",
         required=True,
-        help="The name of the repository you want to push your object to. It should contain your organization name when pushing to a given organization.",
+        help="Hugging Face Hub repo ID to push the model to.",
     )
     parser.add_argument(
         "--model-save-dir",
-        dest="model_save_dir",
         default="results",
-        help="The path to a directory where the tokenizer and the model will be saved.",
+        help="Directory to save the trained model locally.",
     )
-
     args = parser.parse_args()
 
     dir_path = Path(args.model_save_dir)
