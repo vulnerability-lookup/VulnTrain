@@ -48,6 +48,8 @@ huggingface-cli login
 Then ensure that the kvrocks database of Vulnerability-Lookup is running.
 
 
+### Vulnerabililty severity scores
+
 Example: Generate [CIRCL/vulnerability-scores](https://huggingface.co/datasets/CIRCL/vulnerability-scores) dataset
 
 ```bash
@@ -60,6 +62,12 @@ Example: Generate [CIRCL/Vulnerability/CNVD](https://huggingface.co/datasets/CIR
 vulntrain-dataset-generation --sources cnvd --repo-id=CIRCL/Vulnerability-CNVD
 ```
 
+
+### Associating Git Fixes with Common Weakness Enumerations (CWEs)
+
+```bash
+python vulntrain/datasets/cwe-guesser-dataset.py --sources cvelistv5,github,pysec,csaf_redhat
+```
 
 
 
