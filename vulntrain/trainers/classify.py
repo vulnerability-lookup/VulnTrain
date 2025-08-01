@@ -38,15 +38,22 @@ def compute_metrics(eval_pred):
 def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
     # Load dataset
     dataset = load_dataset(dataset_id)
+    # If no test split is provided, create one manually
+    if "test" not in dataset:
+        dataset = dataset["train"].train_test_split(test_size=0.1)
+
 
     # Filter out samples without CWE
     dataset = dataset.filter(lambda x: x.get("cwe") and len(x["cwe"]) > 0)
 
     # Build list of unique CWE labels
+    # Build list of unique CWE labels from the whole dataset
     all_cwes = [
-        cwe for row in dataset["train"]["cwe"]
+        cwe for split in dataset.values()
+        for row in split["cwe"]
         for cwe in (row if isinstance(row, list) else [row])
     ]
+
     unique_cwes = sorted(set(all_cwes))
     logger.info(f"Found {len(unique_cwes)} unique CWE labels.")
 
@@ -63,13 +70,17 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
 
-    def tokenize_function(example):
+    def tokenize_function(examples):
+        texts = examples.get("description", [])
+        # Ensure all texts are strings
+        texts = [text if isinstance(text, str) else "" for text in texts]
         return tokenizer(
-            example["description"],
+            texts,
             padding="max_length",
             truncation=True,
             max_length=512,
-        )
+    )
+
 
     tokenized_dataset = dataset.map(tokenize_function, batched=True)
     tokenized_dataset = tokenized_dataset.rename_column("label", "labels")
@@ -83,7 +94,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
 
     training_args = TrainingArguments(
         output_dir=model_save_dir,
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         save_strategy="epoch",
         learning_rate=3e-5,
         per_device_train_batch_size=16,
@@ -96,6 +107,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         push_to_hub=True,
         hub_model_id=repo_id,
     )
+
 
     trainer = Trainer(
         model=model,
