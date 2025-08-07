@@ -68,17 +68,20 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     tokenizer = AutoTokenizer.from_pretrained(base_model)
 
     def extract_commit_text(patch_list):
-        """Safely extract commit message and optionally decoded patch text."""
-        if isinstance(patch_list, list) and len(patch_list) > 0:
-            patch = patch_list[0]
+        texts = []
+        for patch in patch_list:
             commit_msg = patch.get("commit_message", "")
             patch_text_b64 = patch.get("patch_text_b64", "")
             try:
                 decoded_patch = base64.b64decode(patch_text_b64).decode("utf-8")
+                decoded_patch = clean_patch_text(decoded_patch)
             except Exception:
                 decoded_patch = ""
-            return f"{commit_msg}\n{decoded_patch}".strip()
-        return ""
+            texts.append(f"[COMMIT MESSAGE]\n{commit_msg.strip()}\n\n[PATCH CODE]\n{decoded_patch.strip()}")
+        
+        return "\n\n---\n\n".join(texts)
+
+
 
     def tokenize_function(examples):
         texts = [extract_commit_text(patch) for patch in examples.get("patches", [])]
@@ -90,6 +93,11 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
             truncation=True,
             max_length=512,
         )
+
+    def clean_patch_text(patch_text):
+        lines = patch_text.splitlines()
+        code_lines = [line[1:] for line in lines if line.startswith(('+', '-')) and not line.startswith(('+++', '---'))]
+        return "\n".join(code_lines)
 
 
     tokenized_dataset = dataset.map(tokenize_function, batched=True)
@@ -143,8 +151,13 @@ def main():
     parser = argparse.ArgumentParser(description="Train a vulnerability classifier using CWE labels.")
     parser.add_argument(
         "--base-model",
-        default="distilbert-base-uncased",
-        choices=["distilbert-base-uncased"],
+        default="codebert-base",
+        choices=["distilbert-base-uncased",
+                  "codebert-base",
+                  "codebert-base-uncased",
+                  "bert-base-uncased",
+                  "bert-large-uncased",
+                  "roberta-base"],
         help="Base transformer model to use.",
     )
     parser.add_argument(
@@ -162,6 +175,11 @@ def main():
         default="results",
         help="Directory to save the trained model locally.",
     )
+    parser.add_argument(
+        "--list-cwe", 
+        action="store_true", 
+        help="List all unique CWE labels in the dataset without training.",
+    )
     args = parser.parse_args()
 
     dir_path = Path(args.model_save_dir)
@@ -173,6 +191,26 @@ def main():
     logger.info(f"Repo ID: {args.repo_id}")
     logger.info(f"Saving model to: {args.model_save_dir}")
     logger.info("Starting the training process…")
+
+
+    if args.list_cwe:
+        dataset = load_dataset(args.dataset_id)
+        if "test" not in dataset:
+            dataset = dataset["train"].train_test_split(test_size=0.1)
+
+        dataset = dataset.filter(lambda x: x.get("cwe") and len(x["cwe"]) > 0)
+
+        all_cwes = [
+            cwe for split in dataset.values()
+            for row in split["cwe"]
+            for cwe in (row if isinstance(row, list) else [row])
+        ]
+
+        unique_cwes = sorted(set(all_cwes))
+        print("\nListe des CWE trouvés dans le dataset :")
+        for cwe in unique_cwes:
+            print(f"- {cwe}")
+        return
 
     train(args.base_model, args.dataset_id, args.repo_id, args.model_save_dir)
 
