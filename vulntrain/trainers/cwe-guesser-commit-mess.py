@@ -151,14 +151,8 @@ def main():
     parser = argparse.ArgumentParser(description="Train a vulnerability classifier using CWE labels.")
     parser.add_argument(
         "--base-model",
-        default="codebert-base",
-        choices=["distilbert-base-uncased",
-                  "codebert-base",
-                  "codebert-base-uncased",
-                  "bert-base-uncased",
-                  "bert-large-uncased",
-                  "roberta-base"],
-        help="Base transformer model to use.",
+        default="microsoft/deberta-v3-base",
+        help="Base model to use for training (default: microsoft/deberta-v3-base).",
     )
     parser.add_argument(
         "--dataset-id",
