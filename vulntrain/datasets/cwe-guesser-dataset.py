@@ -12,8 +12,6 @@ from datasets import load_dataset
 from typing import Any, Dict, List, Optional, Generator
 import requests
 
-from datasets import Dataset, Features, Sequence, Value, load_dataset
-
 from vulntrain.config import GITHUB_TOKEN
 from vulntrain.utils import (
     strip_markdown,
@@ -127,7 +125,7 @@ class VulnExtractor:
                     commit_msg_lines.append(line.strip())
 
             commit_message = " ".join(commit_msg_lines)
-            
+            print(f"Encoded patch (first 100 chars): {patch_text_b64[:100]}...")
             return {
                 "url": url,
                 #"platform": platform,
@@ -167,32 +165,23 @@ class VulnExtractor:
             if not patches:
                 return {}
 
-            cwe_list = []
+            cwe_id, cwe_desc = "", ""
             problem_types = vuln["containers"]["cna"].get("problemTypes", [])
-            for problem in problem_types:
-                for desc in problem.get("descriptions", []):
-                    cwe_id = desc.get("cweId", "").strip()
-                    cwe_desc = desc.get("description", "").strip()
+            if problem_types and problem_types[0].get("descriptions"):
+                cwe_id = problem_types[0]["descriptions"][0].get("cweId", "").strip()
+                cwe_desc = problem_types[0]["descriptions"][0].get("description", "").strip()
 
-                    if not cwe_id:
-                        continue
-
-                    if cwe_desc.startswith(cwe_id) or cwe_id in cwe_desc:
-                        cwe = cwe_desc
-                    else:
-                        cwe = f"{cwe_id} - {cwe_desc}".strip(" -")
-
-                    cwe_list.append(cwe)
-
-            if not cwe_list:
-                return {}
+            if cwe_id and (cwe_desc.startswith(cwe_id) or cwe_id in cwe_desc):
+                cwe = cwe_desc
+            else:
+                cwe = f"{cwe_id} - {cwe_desc}".strip(" -")
 
             return {
                 "id": vuln_id,
                 "title": title,
                 "description": desc,
                 "patches": patches,
-                "cwe": cwe_list  # Return the full list
+                "cwe": cwe
             }
 
         except Exception as e:
@@ -204,18 +193,16 @@ class VulnExtractor:
         refs = vuln.get("references", [])
         patch_urls = [ref.get("url", "") for ref in refs if "type" in ref and "patch" in ref["type"].lower()]
         patch_urls = self.filter_alive_links(patch_urls)
-
-        cwes = vuln.get("database_specific", {}).get("cwe_ids", [])
-
-        if not patch_urls or not cwes:
+        if not patch_urls:
             return {}
 
         return {
             "id": vuln.get("id", ""),
             "title": strip_markdown(vuln.get("summary", "")),
-            "cwes": cwes,
+            "cwes": vuln.get("database_specific", {}).get("cwe_ids", []),
             "patch_links": patch_urls,
         }
+
 
     def extract_csaf(self, vuln: Dict[str, Any]) -> Dict[str, Any]:
         description = " ".join(
@@ -253,9 +240,6 @@ class VulnExtractor:
             else:
                 cwes.append(f"{cwe_id} - {cwe_name}".strip(" -"))
 
-        if not cwes:
-            return {}
-
         return {
             "id": vuln["document"]["tracking"]["id"],
             "title": vuln["document"]["title"],
@@ -272,8 +256,6 @@ class VulnExtractor:
             extractor = {
                 "cvelistv5": self.extract_cve,
                 "github": self.extract_ghsa,
-                "gitlab": self.extract_ghsa,
-                "csaf": self.extract_csaf,
                 #"pysec": self.extract_pysec,
             }.get(source) or (self.extract_csaf if source.startswith("csaf_") else None)
 
@@ -301,48 +283,32 @@ class VulnExtractor:
                     if count % 50 == 0:
                         print(f"Pushing to Hugging Face Hub at count={count}...")
                         dataset = load_dataset("json", data_files="data.jsonl")["train"]
-
-                        features = Features({
-                            "id": Value("string"),
-                            "title": Value("string"),
-                            "description": Value("string"),
-                            "patches": Sequence({
-                                "url": Value("string"),
-                                "patch_text_b64": Value("string"),
-                                "commit_message": Value("string")
-                            }),
-                            "cwe": Sequence(Value("string")),  
-                        })
-
-                        dataset = dataset.cast(features)
                         dataset.push_to_hub("CIRCL/vulnerability-cwe-patch")
 
-                    if self.nb_rows and count >= self.nb_rows:
-                        return
                 except Exception as e:
                     log("error", f"Error processing vulnerability: {e}")
 
-        if count % 50 !=0 :
-            print ("Final push to Hugging Face with last entries ...")
-            dataset = load_dataset("json", data_files="data.jsonl")["train"]
-            dataset.push_to_hub("CIRCL/vulnerability-cwe-patch")
+            if count % 50 !=0 :
+                print ("Final push to Hugging Face with last entries ...")
+                dataset = load_dataset("json", data_files="data.jsonl")["train"]
+                dataset.push_to_hub("CIRCL/vulnerability-cwe-patch")
+
 # Main 
 from datasets import Dataset
 def main():
     if os.path.exists("data.jsonl"):
         os.remove("data.jsonl")
     
-    #Reset the dataset on Hugging Face Hub   
+    '''#Reset the dataset on Hugging Face Hub   
     empty_dataset = Dataset.from_dict({
         "id": [],
         "title": [],
         "description": [],
         "patches": [],
-        "cwe_id": [],
-        "cwe_description": []
+        "cwe": [],
     })
     empty_dataset.push_to_hub("CIRCL/vulnerability-cwe-patch", commit_message="Reset without 'references'")
-
+'''
     
     parser = argparse.ArgumentParser(description="Vulnerability Dataset Extractor")
     parser.add_argument("--sources", required=True, help="Comma-separated sources (cvelistv5, github, csaf_*)")
