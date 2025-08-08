@@ -40,7 +40,7 @@ def compute_metrics(eval_pred):
 
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
-    dataset = load_dataset(dataset_id)
+    dataset = load_dataset(dataset_id, ignore_verifications=True)
     if "test" not in dataset:
         dataset = dataset["train"].train_test_split(test_size=0.1)
 
@@ -160,7 +160,7 @@ def main():
     parser.add_argument(
     "--base-model",
     default="gpt2-base" ,
-    
+
 
     help="Base transformer model to use (e.g., roberta-base, codebert-base, etc.).",
 )

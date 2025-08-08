@@ -12,6 +12,8 @@ from datasets import load_dataset
 from typing import Any, Dict, List, Optional, Generator
 import requests
 
+from datasets import Dataset, Features, Sequence, Value, load_dataset
+
 from vulntrain.config import GITHUB_TOKEN
 from vulntrain.utils import (
     strip_markdown,
@@ -299,6 +301,20 @@ class VulnExtractor:
                     if count % 50 == 0:
                         print(f"Pushing to Hugging Face Hub at count={count}...")
                         dataset = load_dataset("json", data_files="data.jsonl")["train"]
+
+                        features = Features({
+                            "id": Value("string"),
+                            "title": Value("string"),
+                            "description": Value("string"),
+                            "patches": Sequence({
+                                "url": Value("string"),
+                                "patch_text_b64": Value("string"),
+                                "commit_message": Value("string")
+                            }),
+                            "cwe": Sequence(Value("string")),  
+                        })
+
+                        dataset = dataset.cast(features)
                         dataset.push_to_hub("CIRCL/vulnerability-cwe-patch")
 
                     if self.nb_rows and count >= self.nb_rows:
@@ -316,7 +332,7 @@ def main():
     if os.path.exists("data.jsonl"):
         os.remove("data.jsonl")
     
-    '''#Reset the dataset on Hugging Face Hub   
+    #Reset the dataset on Hugging Face Hub   
     empty_dataset = Dataset.from_dict({
         "id": [],
         "title": [],
@@ -326,7 +342,7 @@ def main():
         "cwe_description": []
     })
     empty_dataset.push_to_hub("CIRCL/vulnerability-cwe-patch", commit_message="Reset without 'references'")
-'''
+
     
     parser = argparse.ArgumentParser(description="Vulnerability Dataset Extractor")
     parser.add_argument("--sources", required=True, help="Comma-separated sources (cvelistv5, github, csaf_*)")
