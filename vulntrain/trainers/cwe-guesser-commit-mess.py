@@ -4,6 +4,9 @@ import shutil
 from pathlib import Path
 import base64
 
+import json
+from pathlib import Path
+
 import numpy as np
 from sklearn.preprocessing import MultiLabelBinarizer
 from datasets import load_dataset
@@ -23,16 +26,16 @@ logger = logging.getLogger(__name__)
 
 
 def compute_metrics(eval_pred):
-    """Compute accuracy and F1-score for model evaluation."""
-    accuracy = evaluate.load("accuracy")
-    f1 = evaluate.load("f1")
-
     logits, labels = eval_pred
     predictions = np.argmax(logits, axis=-1)
+
+    print("🔍 Predictions:", predictions[:20])
+    print("✅ Labels     :", labels[:20])
 
     acc = accuracy.compute(predictions=predictions, references=labels)
     f1_score = f1.compute(predictions=predictions, references=labels, average="macro")
     return {**acc, **f1_score}
+
 
 
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
@@ -68,19 +71,20 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     tokenizer = AutoTokenizer.from_pretrained(base_model)
 
     def extract_commit_text(patch_list):
-        texts = []
-        for patch in patch_list:
+        if isinstance(patch_list, list) and len(patch_list) > 0:
+            patch = patch_list[0]
             commit_msg = patch.get("commit_message", "")
             patch_text_b64 = patch.get("patch_text_b64", "")
             try:
                 decoded_patch = base64.b64decode(patch_text_b64).decode("utf-8")
-                decoded_patch = clean_patch_text(decoded_patch)
-            except Exception:
+            except Exception as e:
+                print("❌ Error decoding patch:", e)
                 decoded_patch = ""
-            texts.append(f"[COMMIT MESSAGE]\n{commit_msg.strip()}\n\n[PATCH CODE]\n{decoded_patch.strip()}")
-        
-        return "\n\n---\n\n".join(texts)
-
+            full_text = f"{commit_msg}\n{decoded_patch}".strip()
+            if not full_text:
+                print("⚠️ Empty text found.")
+            return full_text
+        return ""
 
 
     def tokenize_function(examples):
@@ -93,11 +97,6 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
             truncation=True,
             max_length=512,
         )
-
-    def clean_patch_text(patch_text):
-        lines = patch_text.splitlines()
-        code_lines = [line[1:] for line in lines if line.startswith(('+', '-')) and not line.startswith(('+++', '---'))]
-        return "\n".join(code_lines)
 
 
     tokenized_dataset = dataset.map(tokenize_function, batched=True)
@@ -113,11 +112,11 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     training_args = TrainingArguments(
         output_dir=model_save_dir,
         eval_strategy="epoch",
-        save_strategy="epoch",
+        save_strategy="no",
         learning_rate=3e-5,
         per_device_train_batch_size=16,
         per_device_eval_batch_size=16,
-        num_train_epochs=4,
+        num_train_epochs=1,
         weight_decay=0.01,
         logging_dir="./logs",
         logging_steps=20,
@@ -143,6 +142,15 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         model.save_pretrained(model_save_dir)
         tokenizer.save_pretrained(model_save_dir)
 
+
+    print(tokenized_dataset)
+    print(tokenized_dataset["train"][0])
+
+    metrics = trainer.evaluate()
+    metrics_path = Path(model_save_dir) / "metrics.json"
+    with open(metrics_path, "w") as f:
+        json.dump(metrics, f, indent=4)
+
     trainer.push_to_hub()
     tokenizer.push_to_hub(repo_id)
 
@@ -150,10 +158,13 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
 def main():
     parser = argparse.ArgumentParser(description="Train a vulnerability classifier using CWE labels.")
     parser.add_argument(
-        "--base-model",
-        default="microsoft/deberta-v3-base",
-        help="Base model to use for training (default: microsoft/deberta-v3-base).",
-    )
+    "--base-model",
+    default="gpt2-base" ,
+    
+
+    help="Base transformer model to use (e.g., roberta-base, codebert-base, etc.).",
+)
+
     parser.add_argument(
         "--dataset-id",
         required=True,
@@ -169,11 +180,6 @@ def main():
         default="results",
         help="Directory to save the trained model locally.",
     )
-    parser.add_argument(
-        "--list-cwe", 
-        action="store_true", 
-        help="List all unique CWE labels in the dataset without training.",
-    )
     args = parser.parse_args()
 
     dir_path = Path(args.model_save_dir)
@@ -185,26 +191,6 @@ def main():
     logger.info(f"Repo ID: {args.repo_id}")
     logger.info(f"Saving model to: {args.model_save_dir}")
     logger.info("Starting the training process…")
-
-
-    if args.list_cwe:
-        dataset = load_dataset(args.dataset_id)
-        if "test" not in dataset:
-            dataset = dataset["train"].train_test_split(test_size=0.1)
-
-        dataset = dataset.filter(lambda x: x.get("cwe") and len(x["cwe"]) > 0)
-
-        all_cwes = [
-            cwe for split in dataset.values()
-            for row in split["cwe"]
-            for cwe in (row if isinstance(row, list) else [row])
-        ]
-
-        unique_cwes = sorted(set(all_cwes))
-        print("\nListe des CWE trouvés dans le dataset :")
-        for cwe in unique_cwes:
-            print(f"- {cwe}")
-        return
 
     train(args.base_model, args.dataset_id, args.repo_id, args.model_save_dir)
 
