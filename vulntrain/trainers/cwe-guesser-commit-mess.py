@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 from sklearn.preprocessing import MultiLabelBinarizer
 from datasets import load_dataset
+
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
@@ -20,6 +21,10 @@ from transformers import (
 from codecarbon import track_emissions
 import evaluate
 
+accuracy = evaluate.load("accuracy")
+f1 = evaluate.load("f1")
+
+
 # Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -29,8 +34,8 @@ def compute_metrics(eval_pred):
     logits, labels = eval_pred
     predictions = np.argmax(logits, axis=-1)
 
-    print("🔍 Predictions:", predictions[:20])
-    print("✅ Labels     :", labels[:20])
+    print("- Predictions:", predictions[:20])
+    print("- Labels     :", labels[:20])
 
     acc = accuracy.compute(predictions=predictions, references=labels)
     f1_score = f1.compute(predictions=predictions, references=labels, average="macro")
@@ -40,7 +45,7 @@ def compute_metrics(eval_pred):
 
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
-    dataset = load_dataset(dataset_id, ignore_verifications=True)
+    dataset = load_dataset(dataset_id)
     if "test" not in dataset:
         dataset = dataset["train"].train_test_split(test_size=0.1)
 
@@ -112,7 +117,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     training_args = TrainingArguments(
         output_dir=model_save_dir,
         eval_strategy="epoch",
-        save_strategy="no",
+        save_strategy="epoch",
         learning_rate=3e-5,
         per_device_train_batch_size=16,
         per_device_eval_batch_size=16,
@@ -131,7 +136,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         args=training_args,
         train_dataset=tokenized_dataset["train"],
         eval_dataset=tokenized_dataset["test"],
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=DataCollatorWithPadding(tokenizer),
         compute_metrics=compute_metrics,
     )
