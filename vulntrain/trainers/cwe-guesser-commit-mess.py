@@ -1,4 +1,5 @@
 import argparse
+from collections import Counter
 import logging
 import shutil
 from pathlib import Path
@@ -134,11 +135,12 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         label_smoothing_factor=0.1,
     )
 
+    small_train = tokenized_dataset["train"].select(range(20))  # For testing purposes
     trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=tokenized_dataset["train"],
-        eval_dataset=tokenized_dataset["test"],
+        train_dataset=small_train,
+        eval_dataset=small_train,  # Use the same small dataset for eval
         tokenizer=tokenizer,
         data_collator=DataCollatorWithPadding(tokenizer),
         compute_metrics=compute_metrics,
@@ -151,8 +153,8 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         tokenizer.save_pretrained(model_save_dir)
 
 
-    print(tokenized_dataset["train"][0]["labels"])
-    print(tokenized_dataset["train"][0])
+    #print(tokenized_dataset["train"][0]["labels"])
+    #print(tokenized_dataset["train"][0])
 
 
     metrics = trainer.evaluate()
@@ -202,6 +204,9 @@ def main():
     logger.info("Starting the training process…")
 
     train(args.base_model, args.dataset_id, args.repo_id, args.model_save_dir)
+
+    from collections import Counter
+    print(Counter([ex["labels"] for ex in small_train]))
 
 
 if __name__ == "__main__":
