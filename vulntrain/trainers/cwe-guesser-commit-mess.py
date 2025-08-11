@@ -20,9 +20,12 @@ from transformers import (
 )
 from codecarbon import track_emissions
 import evaluate
+import os
 
 accuracy = evaluate.load("accuracy")
-f1 = evaluate.load("f1")
+
+#weighted F1 score
+f1 = evaluate.load("f1", config_name="macro")
 
 
 # Logging setup
@@ -119,9 +122,9 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         eval_strategy="epoch",
         save_strategy="epoch",
         learning_rate=3e-5,
-        per_device_train_batch_size=16,
-        per_device_eval_batch_size=16,
-        num_train_epochs=1,
+        per_device_train_batch_size=20,
+        per_device_eval_batch_size=20,
+        num_train_epochs=5,
         weight_decay=0.01,
         logging_dir="./logs",
         logging_steps=20,
