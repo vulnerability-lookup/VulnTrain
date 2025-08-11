@@ -37,8 +37,8 @@ def compute_metrics(eval_pred):
     logits, labels = eval_pred
     predictions = np.argmax(logits, axis=-1)
 
-    print("- Predictions:", predictions[:20])
-    print("- Labels     :", labels[:20])
+    #print("- Predictions:", predictions[:20])
+    #print("- Labels     :", labels[:20])
 
     acc = accuracy.compute(predictions=predictions, references=labels)
     f1_score = f1.compute(predictions=predictions, references=labels, average="macro")
@@ -151,8 +151,9 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         tokenizer.save_pretrained(model_save_dir)
 
 
-    print(tokenized_dataset)
+    print(tokenized_dataset["train"][0]["labels"])
     print(tokenized_dataset["train"][0])
+
 
     metrics = trainer.evaluate()
     metrics_path = Path(model_save_dir) / "metrics.json"
