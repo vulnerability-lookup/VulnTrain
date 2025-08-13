@@ -182,11 +182,9 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
 def main():
     parser = argparse.ArgumentParser(description="Train a vulnerability classifier using CWE labels.")
     parser.add_argument(
-    "--base-model",
-    default="gpt2-base" ,
-
-
-    help="Base transformer model to use (e.g., roberta-base, codebert-base, etc.).",
+        "--base-model",
+        default="roberta-base",
+        help="Base transformer model to use (e.g., roberta-base, codebert-base, etc.).",
 )
 
     parser.add_argument(
