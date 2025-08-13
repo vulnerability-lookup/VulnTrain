@@ -53,27 +53,39 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     if "test" not in dataset:
         dataset = dataset["train"].train_test_split(test_size=0.1)
 
+    # Load the CWE child → parent mapping
+    with open("vulntrain/trainers/child_to_parent_mapping.json") as f:
+        child_to_parent = json.load(f)
+
     # Filter out samples without CWE
     dataset = dataset.filter(lambda x: x.get("cwe") and len(x["cwe"]) > 0)
 
-    # Build list of unique CWE labels from the whole dataset
+    ## mapping first
+    with open("vulntrain/trainers/child_to_parent_mapping.json") as f:
+        child_to_parent = json.load(f)
+
+    # Construct a list of all unique CWE labels
     all_cwes = [
-        cwe for split in dataset.values()
+        child_to_parent.get(cwe, cwe)
+        for split in dataset.values()
         for row in split["cwe"]
         for cwe in (row if isinstance(row, list) else [row])
     ]
 
     unique_cwes = sorted(set(all_cwes))
-    logger.info(f"Found {len(unique_cwes)} unique CWE labels.")
+
+    logger.info(f"Found {len(unique_cwes)} unique CWE labels.") #186 generally
 
     cwe_to_id = {cwe: idx for idx, cwe in enumerate(unique_cwes)}
     id_to_cwe = {idx: cwe for cwe, idx in cwe_to_id.items()}
 
-    # Encode first CWE as label
     def encode_example(example):
         first_cwe = example["cwe"][0] if isinstance(example["cwe"], list) else example["cwe"]
-        example["label"] = cwe_to_id[first_cwe]
+        # Remplacer par le parent CWE si disponible
+        parent_cwe = child_to_parent.get(first_cwe, first_cwe)
+        example["label"] = cwe_to_id[parent_cwe]
         return example
+
 
     dataset = dataset.map(encode_example)
 
@@ -135,12 +147,11 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         label_smoothing_factor=0.1,
     )
 
-    small_train = tokenized_dataset["train"].select(range(20))  # For testing purposes
     trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=small_train,
-        eval_dataset=small_train,  # Use the same small dataset for eval
+        train_dataset=tokenized_dataset["train"],
+        eval_dataset=tokenized_dataset["train"], 
         tokenizer=tokenizer,
         data_collator=DataCollatorWithPadding(tokenizer),
         compute_metrics=compute_metrics,
@@ -156,6 +167,8 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     #print(tokenized_dataset["train"][0]["labels"])
     #print(tokenized_dataset["train"][0])
 
+    from collections import Counter
+    #print(Counter([ex["labels"] for ex in small_train]))
 
     metrics = trainer.evaluate()
     metrics_path = Path(model_save_dir) / "metrics.json"
@@ -204,10 +217,6 @@ def main():
     logger.info("Starting the training process…")
 
     train(args.base_model, args.dataset_id, args.repo_id, args.model_save_dir)
-
-    from collections import Counter
-    print(Counter([ex["labels"] for ex in small_train]))
-
 
 if __name__ == "__main__":
     main()
