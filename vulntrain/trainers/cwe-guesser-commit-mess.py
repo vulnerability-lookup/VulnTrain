@@ -10,7 +10,10 @@ from pathlib import Path
 
 import numpy as np
 from sklearn.preprocessing import MultiLabelBinarizer
+from transformers import Trainer, TrainingArguments, DataCollatorWithPadding, AutoTokenizer
+
 from datasets import load_dataset
+from multilabel_model import MultiLabelClassificationModel
 
 from transformers import (
     AutoModelForSequenceClassification,
@@ -38,12 +41,19 @@ from sklearn.metrics import f1_score, accuracy_score
 
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
-    predictions = (logits > 0).astype(int)  # Apply sigmoid thresholding at 0
+    probs = torch.sigmoid(torch.tensor(logits))
+    predictions = (probs > 0.5).int().numpy()
+
+    from sklearn.metrics import f1_score, accuracy_score
+
+    f1_macro = f1_score(labels, predictions, average="macro")
+    exact_match = (predictions == labels).all(axis=1).mean()
 
     return {
-        "f1": f1_score(labels, predictions, average="macro"),
-        "accuracy": accuracy_score(labels, predictions),
+        "f1_macro": f1_macro,
+        "exact_match": exact_match,
     }
+
 
 
 
@@ -57,7 +67,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     with open("vulntrain/trainers/parent_to_children_mapping.json") as f:
         parent_to_children = json.load(f)
 
-    # Inverser le mapping pour faire: enfant → parent
+    #switch the parent-child mapping to child → parent
     child_to_parent = {}
     for parent, children in parent_to_children.items():
         for child in children:
@@ -139,20 +149,23 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
 
 
     tokenized_dataset = dataset.map(tokenize_function, batched=True)
-    tokenized_dataset = tokenized_dataset.rename_column("label", "labels")
 
     from vulntrain.trainers.multilabel_model import MultiLabelClassificationModel
 
-    model = MultiLabelClassificationModel(base_model, num_labels=len(cwe_to_id))
-
+    model = MultiLabelClassificationModel.from_pretrained(
+        base_model,
+        num_labels=len(cwe_to_id),
+        id2label=id_to_cwe,
+        label2id=cwe_to_id,
+    )
 
     training_args = TrainingArguments(
         output_dir=model_save_dir,
         eval_strategy="epoch",
         save_strategy="epoch",
         learning_rate=3e-5,
-        per_device_train_batch_size=20,
-        per_device_eval_batch_size=20,
+        per_device_train_batch_size=16,
+        per_device_eval_batch_size=16,
         num_train_epochs=5,
         weight_decay=0.01,
         logging_dir="./logs",
@@ -160,18 +173,18 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         load_best_model_at_end=True,
         push_to_hub=True,
         hub_model_id=repo_id,
-        label_smoothing_factor=0.1,
     )
 
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=tokenized_dataset["train"],
-        eval_dataset=tokenized_dataset["train"], 
+        eval_dataset=tokenized_dataset["test"],
         tokenizer=tokenizer,
         data_collator=DataCollatorWithPadding(tokenizer),
         compute_metrics=compute_metrics,
     )
+    trainer.train()
 
     try:
         trainer.train()
