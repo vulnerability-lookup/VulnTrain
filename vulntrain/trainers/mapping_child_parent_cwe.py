@@ -1,41 +1,26 @@
 import json
+from collections import defaultdict
 
-with open("vulntrain/trainers/cwe_list.json", "r") as f:
-    raw = json.load(f)
+with open('vulntrain/trainers/cwe_list.json', 'r') as file:
+    data = json.load(file)
 
-child_to_parent = {}
+parent_to_children = defaultdict(list)
 
-for entry in raw.get("data", []):
-    child_id = entry.get("@ID")
-    related = entry.get("Related_Weaknesses")
+for weakness in data.get("data", []):
+    child_id = weakness.get("@ID")
+    related = weakness.get("Related_Weaknesses", {}).get("Related_Weakness")
 
     if not related:
-        continuevulntrain/trainers/cwe-guesser-commit-mess.py
-
-    related_items = related.get("Related_Weakness")
-    if not related_items:
         continue
 
-    # Convert to list if it's a single object
-    if isinstance(related_items, dict):
-        related_items = [related_items]
+    if isinstance(related, dict):
+        related = [related]
 
-    # Look for ChildOf relationships
-    parent_candidates = [rel for rel in related_items if rel.get("@Nature") == "ChildOf"]
+    for rel in related:
+        if rel.get("@Nature") == "ChildOf":
+            parent_id = rel.get("@CWE_ID")
+            if parent_id and child_id:
+                parent_to_children[parent_id].append(child_id)
 
-    if not parent_candidates:
-        continue
-
-    # Prefer the one marked Primary
-    primary = next((p for p in parent_candidates if p.get("@Ordinal") == "Primary"), None)
-    chosen = primary or parent_candidates[0]
-
-    parent_id = chosen.get("@CWE_ID")
-    if parent_id:
-        child_to_parent[child_id] = parent_id
-
-# Save result to JSON file
-with open("vulntrain/trainers/child_to_parent_mapping.json", "w") as f:
-    json.dump(child_to_parent, f, indent=2)
-
-print(f"{len(child_to_parent)} mappings written to vulntrain/trainers/child_to_parent_mapping.json")
+with open("vulntrain/trainers/parent_to_children_mapping.json", "w") as f:
+    json.dump(parent_to_children, f, indent=2)

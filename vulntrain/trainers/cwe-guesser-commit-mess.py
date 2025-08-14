@@ -34,16 +34,16 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+from sklearn.metrics import f1_score, accuracy_score
+
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
-    predictions = np.argmax(logits, axis=-1)
+    predictions = (logits > 0).astype(int)  # Apply sigmoid thresholding at 0
 
-    #print("- Predictions:", predictions[:20])
-    #print("- Labels     :", labels[:20])
-
-    acc = accuracy.compute(predictions=predictions, references=labels)
-    f1_score = f1.compute(predictions=predictions, references=labels, average="macro")
-    return {**acc, **f1_score}
+    return {
+        "f1": f1_score(labels, predictions, average="macro"),
+        "accuracy": accuracy_score(labels, predictions),
+    }
 
 
 
@@ -53,37 +53,55 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     if "test" not in dataset:
         dataset = dataset["train"].train_test_split(test_size=0.1)
 
-    # Load the CWE child → parent mapping
-    with open("vulntrain/trainers/child_to_parent_mapping.json") as f:
-        child_to_parent = json.load(f)
+    # Load the CWE parent → children mapping
+    with open("vulntrain/trainers/parent_to_children_mapping.json") as f:
+        parent_to_children = json.load(f)
 
+    # Inverser le mapping pour faire: enfant → parent
+    child_to_parent = {}
+    for parent, children in parent_to_children.items():
+        for child in children:
+            child_to_parent[child] = parent
     # Filter out samples without CWE
     dataset = dataset.filter(lambda x: x.get("cwe") and len(x["cwe"]) > 0)
 
-    ## mapping first
-    with open("vulntrain/trainers/child_to_parent_mapping.json") as f:
-        child_to_parent = json.load(f)
+    # Get all CWE labels (flattening parent-to-children)
+    all_cwes = set()
 
-    # Construct a list of all unique CWE labels
-    all_cwes = [
-        child_to_parent.get(cwe, cwe)
-        for split in dataset.values()
-        for row in split["cwe"]
-        for cwe in (row if isinstance(row, list) else [row])
-    ]
+    for split in dataset.values():
+        for row in split["cwe"]:
+            cwes = row if isinstance(row, list) else [row]
+            for cwe in cwes:
+                if cwe in parent_to_children:
+                    all_cwes.update(parent_to_children[cwe])
+                else:
+                    all_cwes.add(cwe)
 
-    unique_cwes = sorted(set(all_cwes))
+    unique_cwes = sorted(all_cwes)
 
-    logger.info(f"Found {len(unique_cwes)} unique CWE labels.") #186 generally
+
+    logger.info(f"Found {len(unique_cwes)} unique CWE labels.") #186 usually
 
     cwe_to_id = {cwe: idx for idx, cwe in enumerate(unique_cwes)}
     id_to_cwe = {idx: cwe for cwe, idx in cwe_to_id.items()}
 
     def encode_example(example):
-        first_cwe = example["cwe"][0] if isinstance(example["cwe"], list) else example["cwe"]
-        # Remplacer par le parent CWE si disponible
-        parent_cwe = child_to_parent.get(first_cwe, first_cwe)
-        example["label"] = cwe_to_id[parent_cwe]
+        cwes = example["cwe"] if isinstance(example["cwe"], list) else [example["cwe"]]
+        label_set = set()
+
+        for cwe in cwes:
+            if cwe in child_to_parent:
+                label_set.add(child_to_parent[cwe])
+            else:
+                label_set.add(cwe)
+
+        # Multi-hot vector
+        label_vector = [0] * len(cwe_to_id)
+        for c in label_set:
+            if c in cwe_to_id:
+                label_vector[cwe_to_id[c]] = 1
+
+        example["labels"] = label_vector
         return example
 
 
@@ -123,12 +141,10 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     tokenized_dataset = dataset.map(tokenize_function, batched=True)
     tokenized_dataset = tokenized_dataset.rename_column("label", "labels")
 
-    model = AutoModelForSequenceClassification.from_pretrained(
-        base_model,
-        num_labels=len(cwe_to_id),
-        id2label=id_to_cwe,
-        label2id=cwe_to_id,
-    )
+    from vulntrain.trainers.multilabel_model import MultiLabelClassificationModel
+
+    model = MultiLabelClassificationModel(base_model, num_labels=len(cwe_to_id))
+
 
     training_args = TrainingArguments(
         output_dir=model_save_dir,
