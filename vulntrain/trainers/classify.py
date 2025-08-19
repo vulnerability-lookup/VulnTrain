@@ -73,13 +73,13 @@ def map_cvss_to_severity(example, score_strategy="first"):
     version_priority = ["cvss_v4_0", "cvss_v3_1", "cvss_v3_0", "cvss_v2_0"]
 
     if score_strategy == "first":
+        severity_score = None
         for key, value in example.items():
-            score = to_float(value)
-            if score is not None:
-                severity_score = score
-                break
-        else:
-            severity_score = None
+            if key in version_priority:
+                score = to_float(value)
+                if score is not None:
+                    severity_score = score
+                    break
 
     elif score_strategy == "latest":
         for key in version_priority:
