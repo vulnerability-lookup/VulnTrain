@@ -1,21 +1,22 @@
 import argparse
-from collections import Counter
 import logging
 import shutil
-from pathlib import Path
 import base64
 import torch
-
 import json
-from pathlib import Path
-
 import numpy as np
+import evaluate
+import os
+
+from codecarbon import track_emissions
+from sklearn.metrics import f1_score, accuracy_score
+from vulntrain.trainers import hierarchy
+from pathlib import Path
+from pathlib import Path
 from sklearn.preprocessing import MultiLabelBinarizer
 from transformers import Trainer, TrainingArguments, DataCollatorWithPadding, AutoTokenizer
-
 from datasets import load_dataset
 from multilabel_model import MultiLabelClassificationModel
-
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
@@ -23,20 +24,12 @@ from transformers import (
     TrainingArguments,
     DataCollatorWithPadding,
 )
-from codecarbon import track_emissions
-import evaluate
-import os
-from sklearn.metrics import f1_score, accuracy_score
-
-from vulntrain.trainers import hierarchy
 
 accuracy = evaluate.load("accuracy")
 
 #weighted F1 score
 f1 = evaluate.load("f1", config_name="macro")
 
-
-# Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -92,6 +85,11 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         return example
 
     dataset = dataset.map(encode_example)
+    # finding the weights for each class
+    label_matrix = np.array([example["labels"] for example in dataset["train"]])
+    pos_counts = label_matrix.sum(axis=0)
+    neg_counts = label_matrix.shape[0] - pos_counts
+    pos_weight = torch.tensor(neg_counts / (pos_counts + 1e-6), dtype=torch.float)
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
 
@@ -130,6 +128,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         id2label=id_to_cwe,
         label2id=cwe_to_id,
     )
+    model.pos_weight = pos_weight
 
     training_args = TrainingArguments(
         output_dir=model_save_dir,
