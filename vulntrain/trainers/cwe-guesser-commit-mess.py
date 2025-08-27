@@ -95,7 +95,11 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
 
-    def extract_commit_text(patch_list):
+    def extract_commit_text(example):
+        patch_list = example.get("patches", [])
+        description = example.get("description", "")
+
+        patch_text = ""
         if isinstance(patch_list, list) and len(patch_list) > 0:
             patch = patch_list[0]
             commit_msg = patch.get("commit_message", "")
@@ -105,13 +109,18 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
             except Exception as e:
                 print(">< Error decoding patch:", e)
                 decoded_patch = ""
-            return f"{commit_msg}\n{decoded_patch}".strip()
-        return ""
+            patch_text = f"{commit_msg}\n{decoded_patch}".strip()
+
+        full_text = f"{description}\n{patch_text}".strip()
+        return full_text
 
     def tokenize_function(examples):
-        texts = [extract_commit_text(patch) for patch in examples.get("patches", [])]
-        texts = [text if isinstance(text, str) else "" for text in texts]
+        texts = [extract_commit_text(example) for example in zip_examples(examples)]
         return tokenizer(texts, padding="max_length", truncation=True, max_length=512)
+
+    def zip_examples(examples):
+        keys = examples.keys()
+        return [dict(zip(keys, values)) for values in zip(*examples.values())]
 
     tokenized_dataset = dataset.map(tokenize_function, batched=True)
 
