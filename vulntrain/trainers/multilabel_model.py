@@ -1,27 +1,22 @@
 import torch
-from transformers import AutoModel, AutoConfig
-from transformers.modeling_outputs import SequenceClassifierOutput
-from transformers import AutoModelForSequenceClassification
-
 import torch.nn as nn
+from transformers import AutoModelForSequenceClassification
 
 class MultiLabelClassificationModel(AutoModelForSequenceClassification):
     def __init__(self, config):
         super().__init__(config)
-        self.pos_weight = None  # Ce sera défini plus tard depuis le script principal
+        self.classifier = nn.Linear(config.hidden_size, config.num_labels)
+        self.loss_fn = nn.BCEWithLogitsLoss()
+        self.config = config
 
     def forward(self, input_ids=None, attention_mask=None, labels=None, **kwargs):
-        outputs = self.roberta(
+        outputs = super().forward(
             input_ids=input_ids,
             attention_mask=attention_mask,
             **kwargs
         )
-
-        logits = self.classifier(outputs[0][:, 0, :])  # utiliser le token CLS
-
+        logits = self.classifier(outputs[0][:, 0, :])  
+        loss = None
         if labels is not None:
-            loss_fct = nn.BCEWithLogitsLoss(pos_weight=self.pos_weight.to(logits.device))
-            loss = loss_fct(logits, labels.float())
-            return (loss, logits)
-
-        return logits
+            loss = self.loss_fn(logits, labels.float())
+        return {"loss": loss, "logits": logits}

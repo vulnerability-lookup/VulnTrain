@@ -8,6 +8,7 @@ import numpy as np
 import evaluate
 import os
 
+from vulntrain.trainers.multilabel_model import MultiLabelClassificationModel
 from codecarbon import track_emissions
 from sklearn.metrics import f1_score, accuracy_score
 from vulntrain.trainers import hierarchy
