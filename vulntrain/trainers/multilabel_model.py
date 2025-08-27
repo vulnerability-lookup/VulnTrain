@@ -1,6 +1,7 @@
 import torch
 from transformers import AutoModel, AutoConfig
 from transformers.modeling_outputs import SequenceClassifierOutput
+from transformers import AutoModelForSequenceClassification
 
 import torch.nn as nn
 
