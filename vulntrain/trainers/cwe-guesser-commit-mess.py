@@ -17,7 +17,6 @@ from pathlib import Path
 from sklearn.preprocessing import MultiLabelBinarizer
 from transformers import Trainer, TrainingArguments, DataCollatorWithPadding, AutoTokenizer
 from datasets import load_dataset
-from multilabel_model import MultiLabelClassificationModel
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
@@ -123,12 +122,12 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
 
     tokenized_dataset = dataset.map(tokenize_function, batched=True)
 
-    model = MultiLabelClassificationModel.from_pretrained(
-        base_model,
+    model = MultiLabelClassificationModel(
+        model_name=base_model,
         num_labels=len(cwe_to_id),
-        id2label=id_to_cwe,
-        label2id=cwe_to_id,
+        pos_weight=pos_weight,
     )
+
     model.pos_weight = pos_weight
 
     training_args = TrainingArguments(
