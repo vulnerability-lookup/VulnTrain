@@ -27,7 +27,6 @@ from transformers import (
 
 accuracy = evaluate.load("accuracy")
 
-#weighted F1 score
 f1 = evaluate.load("f1", config_name="macro")
 
 logging.basicConfig(level=logging.INFO)
@@ -159,8 +158,16 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     try:
         trainer.train()
     finally:
-        model.save_pretrained(model_save_dir)
+        torch.save(model.state_dict(), os.path.join(model_save_dir, "pytorch_model.bin"))
+        
         tokenizer.save_pretrained(model_save_dir)
+        config = {
+            "num_labels": len(cwe_to_id),
+            "id2label": id_to_cwe,
+            "label2id": cwe_to_id,
+        }
+        with open(os.path.join(model_save_dir, "config.json"), "w") as f:
+            json.dump(config, f, indent=4)
 
     metrics = trainer.evaluate()
     metrics_path = Path(model_save_dir) / "metrics.json"
