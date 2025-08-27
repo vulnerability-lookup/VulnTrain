@@ -46,7 +46,7 @@ def compute_metrics(eval_pred):
     probs = torch.sigmoid(torch.tensor(logits))
     predictions = (probs > 0.5).int().numpy()
 
-    f1_macro = f1.compute(predictions=predictions, references=labels)
+    f1_macro = f1_score(labels, predictions, average="macro", zero_division=0)
     exact_match = (predictions == labels).all(axis=1).mean()
 
     return {
@@ -54,7 +54,6 @@ def compute_metrics(eval_pred):
         "exact_match": exact_match,
     }
 
-@track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
     from vulntrain.trainers.multilabel_model import MultiLabelClassificationModel
