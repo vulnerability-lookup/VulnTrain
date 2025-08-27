@@ -28,6 +28,8 @@ import evaluate
 import os
 from sklearn.metrics import f1_score, accuracy_score
 
+from vulntrain.trainers import hierarchy
+
 accuracy = evaluate.load("accuracy")
 
 #weighted F1 score
@@ -53,6 +55,7 @@ def compute_metrics(eval_pred):
     }
 
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
+@track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
     from vulntrain.trainers.multilabel_model import MultiLabelClassificationModel
 
@@ -61,21 +64,11 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         dataset = dataset["train"].train_test_split(test_size=0.1)
 
     with open("vulntrain/trainers/deep_child_to_ancestor.json") as f:
-        hierarchy = json.load(f)
+        child_to_ancestor = json.load(f)
 
-    child_to_ancestor = {}
-    for level in hierarchy:
-        for parent, children in hierarchy[level].items():
-            for child in children:
-                if child not in child_to_ancestor:
-                    child_to_ancestor[child] = parent
-
-    target_levels = ["Level 0", "Level 1"]
-    all_cwes = set()
-    for level in target_levels:
-        all_cwes.update(hierarchy.get(level, {}).keys())
-
+    all_cwes = set(child_to_ancestor.values())
     unique_cwes = sorted(all_cwes)
+
     logger.info(f"Targeting {len(unique_cwes)} unique CWE ancestor labels.")
 
     cwe_to_id = {cwe: idx for idx, cwe in enumerate(unique_cwes)}
@@ -88,7 +81,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         label_set = set()
 
         for cwe in cwes:
-            ancestor = child_to_ancestor.get(cwe, cwe)
+            ancestor = child_to_ancestor.get(cwe, cwe)  
             if ancestor in cwe_to_id:
                 label_set.add(ancestor)
 
