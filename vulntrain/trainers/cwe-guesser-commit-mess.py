@@ -26,6 +26,7 @@ from transformers import (
 from codecarbon import track_emissions
 import evaluate
 import os
+from sklearn.metrics import f1_score, accuracy_score
 
 accuracy = evaluate.load("accuracy")
 
@@ -38,16 +39,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-from sklearn.metrics import f1_score, accuracy_score
-
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
     probs = torch.sigmoid(torch.tensor(logits))
     predictions = (probs > 0.5).int().numpy()
 
-    from sklearn.metrics import f1_score, accuracy_score
-
-    f1_macro = f1_score(labels, predictions, average="macro")
+    f1_macro = f1.compute(predictions=predictions, references=labels)
     exact_match = (predictions == labels).all(axis=1).mean()
 
     return {
@@ -55,66 +52,52 @@ def compute_metrics(eval_pred):
         "exact_match": exact_match,
     }
 
-
-
-
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
+    from vulntrain.trainers.multilabel_model import MultiLabelClassificationModel
+
     dataset = load_dataset(dataset_id)
     if "test" not in dataset:
         dataset = dataset["train"].train_test_split(test_size=0.1)
 
-    # Load the CWE parent → children mapping
-    with open("vulntrain/trainers/parent_to_children_mapping.json") as f:
-        parent_to_children = json.load(f)
+    with open("vulntrain/trainers/deep_child_to_ancestor.json") as f:
+        hierarchy = json.load(f)
 
-    #switch the parent-child mapping to child → parent
-    child_to_parent = {}
-    for parent, children in parent_to_children.items():
-        for child in children:
-            child_to_parent[child] = parent
-    # Filter out samples without CWE
-    dataset = dataset.filter(lambda x: x.get("cwe") and len(x["cwe"]) > 0)
+    child_to_ancestor = {}
+    for level in hierarchy:
+        for parent, children in hierarchy[level].items():
+            for child in children:
+                if child not in child_to_ancestor:
+                    child_to_ancestor[child] = parent
 
-    # Get all CWE labels (flattening parent-to-children)
+    target_levels = ["Level 0", "Level 1"]
     all_cwes = set()
-
-    for split in dataset.values():
-        for row in split["cwe"]:
-            cwes = row if isinstance(row, list) else [row]
-            for cwe in cwes:
-                if cwe in parent_to_children:
-                    all_cwes.update(parent_to_children[cwe])
-                else:
-                    all_cwes.add(cwe)
+    for level in target_levels:
+        all_cwes.update(hierarchy.get(level, {}).keys())
 
     unique_cwes = sorted(all_cwes)
-
-
-    logger.info(f"Found {len(unique_cwes)} unique CWE labels.") #186 usually
+    logger.info(f"Targeting {len(unique_cwes)} unique CWE ancestor labels.")
 
     cwe_to_id = {cwe: idx for idx, cwe in enumerate(unique_cwes)}
     id_to_cwe = {idx: cwe for cwe, idx in cwe_to_id.items()}
+
+    dataset = dataset.filter(lambda x: x.get("cwe") and len(x["cwe"]) > 0)
 
     def encode_example(example):
         cwes = example["cwe"] if isinstance(example["cwe"], list) else [example["cwe"]]
         label_set = set()
 
         for cwe in cwes:
-            if cwe in child_to_parent:
-                label_set.add(child_to_parent[cwe])
-            else:
-                label_set.add(cwe)
+            ancestor = child_to_ancestor.get(cwe, cwe)
+            if ancestor in cwe_to_id:
+                label_set.add(ancestor)
 
-        # Multi-hot vector
         label_vector = [0] * len(cwe_to_id)
         for c in label_set:
-            if c in cwe_to_id:
-                label_vector[cwe_to_id[c]] = 1
+            label_vector[cwe_to_id[c]] = 1
 
         example["labels"] = label_vector
         return example
-
 
     dataset = dataset.map(encode_example)
 
@@ -128,30 +111,17 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
             try:
                 decoded_patch = base64.b64decode(patch_text_b64).decode("utf-8")
             except Exception as e:
-                print("❌ Error decoding patch:", e)
+                print(">< Error decoding patch:", e)
                 decoded_patch = ""
-            full_text = f"{commit_msg}\n{decoded_patch}".strip()
-            if not full_text:
-                print("⚠️ Empty text found.")
-            return full_text
+            return f"{commit_msg}\n{decoded_patch}".strip()
         return ""
-
 
     def tokenize_function(examples):
         texts = [extract_commit_text(patch) for patch in examples.get("patches", [])]
-        # Ensure all texts are strings
         texts = [text if isinstance(text, str) else "" for text in texts]
-        return tokenizer(
-            texts,
-            padding="max_length",
-            truncation=True,
-            max_length=512,
-        )
-
+        return tokenizer(texts, padding="max_length", truncation=True, max_length=512)
 
     tokenized_dataset = dataset.map(tokenize_function, batched=True)
-
-    from vulntrain.trainers.multilabel_model import MultiLabelClassificationModel
 
     model = MultiLabelClassificationModel.from_pretrained(
         base_model,
@@ -185,20 +155,12 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         data_collator=DataCollatorWithPadding(tokenizer),
         compute_metrics=compute_metrics,
     )
-    trainer.train()
 
     try:
         trainer.train()
     finally:
         model.save_pretrained(model_save_dir)
         tokenizer.save_pretrained(model_save_dir)
-
-
-    #print(tokenized_dataset["train"][0]["labels"])
-    #print(tokenized_dataset["train"][0])
-
-    from collections import Counter
-    #print(Counter([ex["labels"] for ex in small_train]))
 
     metrics = trainer.evaluate()
     metrics_path = Path(model_save_dir) / "metrics.json"
