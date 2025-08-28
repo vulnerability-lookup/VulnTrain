@@ -101,6 +101,13 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         return example
 
     dataset = dataset.map(encode_example)
+
+    def count_pos_labels(ds):
+        return sum(1 for ex in ds if sum(ex["labels"]) > 0)
+
+    print("-------------- Train positives:", count_pos_labels(dataset["train"]))
+    print("-------------- Test positives :", count_pos_labels(dataset["test"]))
+
     # finding the weights for each class
     label_matrix = np.array([example["labels"] for example in dataset["train"]])
     pos_counts = label_matrix.sum(axis=0)
