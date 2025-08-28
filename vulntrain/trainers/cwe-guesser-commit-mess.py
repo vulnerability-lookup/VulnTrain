@@ -35,6 +35,11 @@ logger = logging.getLogger(__name__)
 
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
+    labels = np.array(labels)
+    print(".........................................Labels shape:", labels.shape)
+    print(".....................................Predictions shape:", predictions.shape)
+
+
     probs = torch.sigmoid(torch.tensor(logits))
     predictions = (probs > 0.5).int().numpy()
 
