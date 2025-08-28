@@ -65,8 +65,11 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     from vulntrain.trainers.multilabel_model import MultiLabelClassificationModel
 
     dataset = load_dataset(dataset_id)
-    if "test" not in dataset:
-        dataset = dataset["train"].train_test_split(test_size=0.1)
+
+    dataset = dataset["train"].filter(lambda x: x.get("cwe") and len(x["cwe"]) > 0)
+
+    dataset = dataset.train_test_split(test_size=0.1)
+
 
     with open("vulntrain/trainers/deep_child_to_ancestor.json") as f:
         child_to_ancestor = json.load(f)
