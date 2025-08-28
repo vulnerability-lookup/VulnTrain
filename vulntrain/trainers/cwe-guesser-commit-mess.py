@@ -101,6 +101,8 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         return example
 
     dataset = dataset.map(encode_example)
+    #delete if no labels
+    dataset = dataset.filter(lambda x: sum(x["labels"]) > 0)
 
     def count_pos_labels(ds):
         return sum(1 for ex in ds if sum(ex["labels"]) > 0)
