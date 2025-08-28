@@ -36,20 +36,29 @@ logger = logging.getLogger(__name__)
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
     labels = np.array(labels)
-    print(".........................................Labels shape:", labels.shape)
-    print(".....................................Predictions shape:", predictions.shape)
 
+    try:
+        probs = torch.sigmoid(torch.tensor(logits))
+        predictions = (probs > 0.5).int().numpy()
 
-    probs = torch.sigmoid(torch.tensor(logits))
-    predictions = (probs > 0.5).int().numpy()
+        print("-----Predictions shape:", predictions.shape)
+        print("-------Labels shape:", labels.shape)
+        print("---------Predictions sums (first 5):", predictions.sum(axis=1)[:5])
+        print("-----------Labels sums (first 5):", labels.sum(axis=1)[:5])
 
-    f1_macro = f1_score(labels, predictions, average="macro", zero_division=0)
-    exact_match = (predictions == labels).all(axis=1).mean()
+        f1_macro = f1_score(labels, predictions, average="macro", zero_division=0)
+        exact_match = (predictions == labels).all(axis=1).mean()
+
+    except Exception as e:
+        print("Error in compute_metrics:", str(e))
+        f1_macro = 0.0
+        exact_match = 0.0
 
     return {
         "f1_macro": f1_macro,
         "exact_match": exact_match,
     }
+
 
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
