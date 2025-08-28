@@ -38,7 +38,12 @@ def compute_metrics(eval_pred):
 
     try:
         probs = torch.sigmoid(torch.tensor(logits))
-        predictions = (probs > 0.5).int().numpy()
+        #test avec une seule prediction
+        predictions = np.zeros_like(probs)
+        top1_indices = torch.topk(probs, k=1, dim=1).indices
+        for i, idx in enumerate(top1_indices):
+            predictions[i][idx] = 1
+        predictions = predictions.numpy()
 
         print("-----Predictions shape:", predictions.shape)
         print("-------Labels shape:", labels.shape)
@@ -61,8 +66,8 @@ def compute_metrics(eval_pred):
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
     dataset = load_dataset(dataset_id)
-    ###dataset = dataset["train"].filter(lambda x: x.get("cwe") and len(x["cwe"]) > 0)
-    ###dataset = dataset.train_test_split(test_size=0.1)
+    dataset = dataset["train"].filter(lambda x: x.get("cwe") and len(x["cwe"]) > 0)
+    dataset = dataset.train_test_split(test_size=0.1)
 
     with open("vulntrain/trainers/deep_child_to_ancestor.json") as f:
         child_to_ancestor = json.load(f)
@@ -149,10 +154,10 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         output_dir=model_save_dir,
         eval_strategy="epoch",
         save_strategy="epoch",
-        learning_rate=3e-5,
+        learning_rate=1e-5,
         per_device_train_batch_size=16,
         per_device_eval_batch_size=16,
-        num_train_epochs=5,
+        num_train_epochs=20,
         weight_decay=0.01,
         logging_dir="./logs",
         logging_steps=20,
