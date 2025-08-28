@@ -7,31 +7,30 @@ import json
 import numpy as np
 import evaluate
 import os
+import re
 
 from vulntrain.trainers.multilabel_model import MultiLabelClassificationModel
 from codecarbon import track_emissions
-from sklearn.metrics import f1_score, accuracy_score
-from vulntrain.trainers import hierarchy
+from sklearn.metrics import f1_score
 from pathlib import Path
-from pathlib import Path
-from sklearn.preprocessing import MultiLabelBinarizer
 from transformers import Trainer, TrainingArguments, DataCollatorWithPadding, AutoTokenizer
 from datasets import load_dataset
-from transformers import (
-    AutoModelForSequenceClassification,
-    AutoTokenizer,
-    Trainer,
-    TrainingArguments,
-    DataCollatorWithPadding,
-)
 
 accuracy = evaluate.load("accuracy")
-
 f1 = evaluate.load("f1", config_name="macro")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def extract_cwe_id(cwe_string):
+    """
+    Extrait l'identifiant CWE d'une chaîne de type 'CWE-120 - Buffer Overflow' comme venant du dataset
+    Retourne '120' ou None si non valide.
+    """
+    match = re.search(r"CWE-(\d+)", cwe_string)
+    if match:
+        return match.group(1)
+    return None
 
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
@@ -59,17 +58,11 @@ def compute_metrics(eval_pred):
         "exact_match": exact_match,
     }
 
-
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
-    from vulntrain.trainers.multilabel_model import MultiLabelClassificationModel
-
     dataset = load_dataset(dataset_id)
-
     dataset = dataset["train"].filter(lambda x: x.get("cwe") and len(x["cwe"]) > 0)
-
     dataset = dataset.train_test_split(test_size=0.1)
-
 
     with open("vulntrain/trainers/deep_child_to_ancestor.json") as f:
         child_to_ancestor = json.load(f)
@@ -82,14 +75,15 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     cwe_to_id = {cwe: idx for idx, cwe in enumerate(unique_cwes)}
     id_to_cwe = {idx: cwe for cwe, idx in cwe_to_id.items()}
 
-    dataset = dataset.filter(lambda x: x.get("cwe") and len(x["cwe"]) > 0)
-
     def encode_example(example):
         cwes = example["cwe"] if isinstance(example["cwe"], list) else [example["cwe"]]
         label_set = set()
 
         for cwe in cwes:
-            ancestor = child_to_ancestor.get(cwe, cwe)  
+            cwe_id = extract_cwe_id(cwe)
+            if not cwe_id:
+                continue
+            ancestor = child_to_ancestor.get(cwe_id, cwe_id)
             if ancestor in cwe_to_id:
                 label_set.add(ancestor)
 
@@ -101,16 +95,15 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         return example
 
     dataset = dataset.map(encode_example)
-    #delete if no labels
+
+    # Supprimer les exemples sans labels (rien a supprimer normalement)
     dataset = dataset.filter(lambda x: sum(x["labels"]) > 0)
 
-    def count_pos_labels(ds):
-        return sum(1 for ex in ds if sum(ex["labels"]) > 0)
+    # DEBUG
+    print("-------------- Train positives:", sum(sum(ex["labels"]) > 0 for ex in dataset["train"]))
+    print("-------------- Test positives :", sum(sum(ex["labels"]) > 0 for ex in dataset["test"]))
 
-    print("-------------- Train positives:", count_pos_labels(dataset["train"]))
-    print("-------------- Test positives :", count_pos_labels(dataset["test"]))
-
-    # finding the weights for each class
+    # Poids pour le loss
     label_matrix = np.array([example["labels"] for example in dataset["train"]])
     pos_counts = label_matrix.sum(axis=0)
     neg_counts = label_matrix.shape[0] - pos_counts
@@ -134,16 +127,15 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
                 decoded_patch = ""
             patch_text = f"{commit_msg}\n{decoded_patch}".strip()
 
-        full_text = f"{description}\n{patch_text}".strip()
-        return full_text
-
-    def tokenize_function(examples):
-        texts = [extract_commit_text(example) for example in zip_examples(examples)]
-        return tokenizer(texts, padding="max_length", truncation=True, max_length=512)
+        return f"{description}\n{patch_text}".strip()
 
     def zip_examples(examples):
         keys = examples.keys()
         return [dict(zip(keys, values)) for values in zip(*examples.values())]
+
+    def tokenize_function(examples):
+        texts = [extract_commit_text(example) for example in zip_examples(examples)]
+        return tokenizer(texts, padding="max_length", truncation=True, max_length=512)
 
     tokenized_dataset = dataset.map(tokenize_function, batched=True)
 
@@ -152,8 +144,6 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         num_labels=len(cwe_to_id),
         pos_weight=pos_weight,
     )
-
-    model.pos_weight = pos_weight
 
     training_args = TrainingArguments(
         output_dir=model_save_dir,
@@ -185,7 +175,6 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         trainer.train()
     finally:
         torch.save(model.state_dict(), os.path.join(model_save_dir, "pytorch_model.bin"))
-        
         tokenizer.save_pretrained(model_save_dir)
         config = {
             "num_labels": len(cwe_to_id),
