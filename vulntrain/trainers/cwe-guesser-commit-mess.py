@@ -8,11 +8,11 @@ import numpy as np
 import evaluate
 import os
 import re
+from collections import Counter
 
 from transformers import AutoModelForSequenceClassification
 from codecarbon import track_emissions
 from sklearn.metrics import f1_score, accuracy_score
-from sklearn.utils.class_weight import compute_class_weight
 from pathlib import Path
 from transformers import Trainer, TrainingArguments, DataCollatorWithPadding, AutoTokenizer
 from datasets import load_dataset
@@ -42,7 +42,7 @@ class WeightedTrainer(Trainer):
         super().__init__(*args, **kwargs)
         self.class_weights = class_weights
 
-    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):  # fix
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         labels = inputs.get("labels")
         outputs = model(**inputs)
         logits = outputs.get("logits")
@@ -86,6 +86,19 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     print("-------------- Train examples:", len(dataset["train"]))
     print("-------------- Test examples :", len(dataset["test"]))
 
+    # Compute class weights parce que classes desequilibrees
+    label_counts = Counter(example["labels"] for example in dataset["train"])
+    total = sum(label_counts.values())
+    class_weights = []
+    for i in range(len(cwe_to_id)):
+        count = label_counts.get(i, 0)
+        if count > 0:
+            weight = total / (len(label_counts) * count)
+        else:
+            weight = 0.0
+        class_weights.append(weight)
+    class_weights = torch.tensor(class_weights, dtype=torch.float)
+
     tokenizer = AutoTokenizer.from_pretrained(base_model)
 
     def extract_commit_text(example):
@@ -121,18 +134,9 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         num_labels=len(cwe_to_id)
     )
 
-    # petit calcul des poids parce que la oulala 
-    train_labels = [ex["labels"] for ex in dataset["train"]]
-    class_weights_np = compute_class_weight(
-        class_weight="balanced",
-        classes=np.unique(train_labels),
-        y=train_labels
-    )
-    class_weights_tensor = torch.tensor(class_weights_np, dtype=torch.float)
-
     training_args = TrainingArguments(
         output_dir=model_save_dir,
-        eval_strategy="epoch", # TOUJOURS toujours eval et pas evaluation -_-
+        eval_strategy="epoch",
         save_strategy="epoch",
         learning_rate=1e-5,
         per_device_train_batch_size=16,
@@ -154,7 +158,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         tokenizer=tokenizer,
         data_collator=DataCollatorWithPadding(tokenizer),
         compute_metrics=compute_metrics,
-        class_weights=class_weights_tensor,
+        class_weights=class_weights,
     )
 
     try:
