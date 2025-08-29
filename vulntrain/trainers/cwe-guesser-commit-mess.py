@@ -132,7 +132,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
 
     training_args = TrainingArguments(
         output_dir=model_save_dir,
-        evaluation_strategy="epoch",
+        eval_strategy="epoch", # TOUJOURS toujours eval et pas evaluation -_-
         save_strategy="epoch",
         learning_rate=1e-5,
         per_device_train_batch_size=16,
