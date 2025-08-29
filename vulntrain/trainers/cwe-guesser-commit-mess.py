@@ -12,6 +12,7 @@ import re
 from transformers import AutoModelForSequenceClassification
 from codecarbon import track_emissions
 from sklearn.metrics import f1_score, accuracy_score
+from sklearn.utils.class_weight import compute_class_weight
 from pathlib import Path
 from transformers import Trainer, TrainingArguments, DataCollatorWithPadding, AutoTokenizer
 from datasets import load_dataset
@@ -35,6 +36,19 @@ def compute_metrics(eval_pred):
         "accuracy": accuracy_score(labels, predictions),
         "f1_macro": f1_score(labels, predictions, average="macro", zero_division=0),
     }
+
+class WeightedTrainer(Trainer):
+    def __init__(self, *args, class_weights=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.class_weights = class_weights
+
+    def compute_loss(self, model, inputs, return_outputs=False):
+        labels = inputs.get("labels")
+        outputs = model(**inputs)
+        logits = outputs.get("logits")
+        loss_fct = torch.nn.CrossEntropyLoss(weight=self.class_weights.to(logits.device))
+        loss = loss_fct(logits, labels)
+        return (loss, outputs) if return_outputs else loss
 
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
@@ -107,9 +121,18 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         num_labels=len(cwe_to_id)
     )
 
+    # petit calcul des poids parce que la oulala 
+    train_labels = [ex["labels"] for ex in dataset["train"]]
+    class_weights_np = compute_class_weight(
+        class_weight="balanced",
+        classes=np.unique(train_labels),
+        y=train_labels
+    )
+    class_weights_tensor = torch.tensor(class_weights_np, dtype=torch.float)
+
     training_args = TrainingArguments(
         output_dir=model_save_dir,
-        eval_strategy="epoch",
+        evaluation_strategy="epoch",
         save_strategy="epoch",
         learning_rate=1e-5,
         per_device_train_batch_size=16,
@@ -123,7 +146,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         hub_model_id=repo_id,
     )
 
-    trainer = Trainer(
+    trainer = WeightedTrainer(
         model=model,
         args=training_args,
         train_dataset=tokenized_dataset["train"],
@@ -131,6 +154,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         tokenizer=tokenizer,
         data_collator=DataCollatorWithPadding(tokenizer),
         compute_metrics=compute_metrics,
+        class_weights=class_weights_tensor,
     )
 
     try:
