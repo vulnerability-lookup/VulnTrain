@@ -178,7 +178,6 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
 
         config.save_pretrained(model_save_dir)
 
-
     metrics = trainer.evaluate()
     metrics_path = Path(model_save_dir) / "metrics.json"
     with open(metrics_path, "w") as f:
