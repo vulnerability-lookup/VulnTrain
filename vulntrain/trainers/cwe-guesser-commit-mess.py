@@ -161,18 +161,23 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         class_weights=class_weights,
     )
 
+    from transformers import AutoConfig
+
     try:
         trainer.train()
     finally:
         model.save_pretrained(model_save_dir)
         tokenizer.save_pretrained(model_save_dir)
-        config = {
-            "num_labels": len(cwe_to_id),
-            "id2label": id_to_cwe,
-            "label2id": cwe_to_id,
-        }
-        with open(os.path.join(model_save_dir, "config.json"), "w") as f:
-            json.dump(config, f, indent=4)
+
+        config = AutoConfig.from_pretrained(base_model)
+
+        config.id2label = id_to_cwe
+        config.label2id = cwe_to_id
+        config.num_labels = len(cwe_to_id)
+        config.problem_type = "single_label_classification"
+
+        config.save_pretrained(model_save_dir)
+
 
     metrics = trainer.evaluate()
     metrics_path = Path(model_save_dir) / "metrics.json"
