@@ -12,7 +12,7 @@ from collections import Counter
 
 from transformers import AutoModelForSequenceClassification
 from codecarbon import track_emissions
-from sklearn.metrics import f1_score, accuracy_score
+from sklearn.metrics import f1_score, accuracy_score, top_k_accuracy_score
 from pathlib import Path
 from transformers import Trainer, TrainingArguments, DataCollatorWithPadding, AutoTokenizer
 from datasets import load_dataset
@@ -35,19 +35,40 @@ def compute_metrics(eval_pred):
     return {
         "accuracy": accuracy_score(labels, predictions),
         "f1_macro": f1_score(labels, predictions, average="macro", zero_division=0),
+        "top2_acc": top_k_accuracy_score(labels, logits, k=2),
+        "top3_acc": top_k_accuracy_score(labels, logits, k=3),
+        "top5_acc": top_k_accuracy_score(labels, logits, k=5),
     }
+
+class FocalLoss(torch.nn.Module):
+    def __init__(self, alpha=None, gamma=2.0, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha  # class_weights
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, logits, targets):
+        ce_loss = torch.nn.functional.cross_entropy(logits, targets, weight=self.alpha, reduction='none')
+        pt = torch.exp(-ce_loss)
+        focal_loss = (1 - pt) ** self.gamma * ce_loss
+
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        return focal_loss
 
 class WeightedTrainer(Trainer):
     def __init__(self, *args, class_weights=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.class_weights = class_weights
+        self.loss_fct = FocalLoss(alpha=self.class_weights)
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         labels = inputs.get("labels")
         outputs = model(**inputs)
         logits = outputs.get("logits")
-        loss_fct = torch.nn.CrossEntropyLoss(weight=self.class_weights.to(logits.device))
-        loss = loss_fct(logits, labels)
+        loss = self.loss_fct(logits, labels)
         return (loss, outputs) if return_outputs else loss
 
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
@@ -148,6 +169,10 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         load_best_model_at_end=True,
         push_to_hub=True,
         hub_model_id=repo_id,
+        # Uncomment this for early stopping:
+        # disable_tqdm=False,
+        # metric_for_best_model="eval_loss",
+        # greater_is_better=False,
     )
 
     trainer = WeightedTrainer(
@@ -160,8 +185,6 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         compute_metrics=compute_metrics,
         class_weights=class_weights,
     )
-
-    from transformers import AutoConfig
 
     try:
         trainer.train()
@@ -192,7 +215,6 @@ def main():
         default="roberta-base",
         help="Base transformer model to use (e.g., roberta-base, codebert-base, etc.).",
     )
-
     parser.add_argument(
         "--dataset-id",
         required=True,
