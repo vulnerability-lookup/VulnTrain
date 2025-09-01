@@ -176,7 +176,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         config.num_labels = len(cwe_to_id)
         config.problem_type = "single_label_classification"
 
-        config.save_pretrained(model_save_dir)
+        config = model.config
 
     metrics = trainer.evaluate()
     metrics_path = Path(model_save_dir) / "metrics.json"
