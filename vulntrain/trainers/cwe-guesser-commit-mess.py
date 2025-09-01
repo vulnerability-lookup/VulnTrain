@@ -43,12 +43,17 @@ def compute_metrics(eval_pred):
 class FocalLoss(torch.nn.Module):
     def __init__(self, alpha=None, gamma=2.0, reduction='mean'):
         super(FocalLoss, self).__init__()
-        self.alpha = alpha  # class_weights
+        self.register_buffer("alpha", alpha)  
         self.gamma = gamma
         self.reduction = reduction
 
     def forward(self, logits, targets):
-        ce_loss = torch.nn.functional.cross_entropy(logits, targets, weight=self.alpha, reduction='none')
+        if self.alpha is not None:
+            alpha = self.alpha.to(logits.device)  
+        else:
+            alpha = None
+
+        ce_loss = torch.nn.functional.cross_entropy(logits, targets, weight=alpha, reduction='none')
         pt = torch.exp(-ce_loss)
         focal_loss = (1 - pt) ** self.gamma * ce_loss
 
@@ -57,6 +62,7 @@ class FocalLoss(torch.nn.Module):
         elif self.reduction == 'sum':
             return focal_loss.sum()
         return focal_loss
+
 
 class WeightedTrainer(Trainer):
     def __init__(self, *args, class_weights=None, **kwargs):
