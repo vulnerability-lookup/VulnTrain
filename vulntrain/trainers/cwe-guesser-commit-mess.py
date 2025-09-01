@@ -169,21 +169,19 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         model.save_pretrained(model_save_dir)
         tokenizer.save_pretrained(model_save_dir)
 
-        config = AutoConfig.from_pretrained(base_model)
+        model.config.id2label = id_to_cwe
+        model.config.label2id = cwe_to_id
+        model.config.num_labels = len(cwe_to_id)
+        model.config.problem_type = "single_label_classification"
 
-        config.id2label = id_to_cwe
-        config.label2id = cwe_to_id
-        config.num_labels = len(cwe_to_id)
-        config.problem_type = "single_label_classification"
-
-        config = model.config
+        model.config.save_pretrained(model_save_dir)
 
     metrics = trainer.evaluate()
     metrics_path = Path(model_save_dir) / "metrics.json"
     with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=4)
 
-    trainer.push_to_hub()
+    trainer.push_to_hub(repo_id)
     tokenizer.push_to_hub(repo_id)
 
 
