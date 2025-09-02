@@ -87,17 +87,11 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     print("-------------- Test examples :", len(dataset["test"]))
 
     # Compute class weights parce que classes desequilibrees
-    label_counts = Counter(example["labels"] for example in dataset["train"])
-    total = sum(label_counts.values())
-    class_weights = []
-    for i in range(len(cwe_to_id)):
-        count = label_counts.get(i, 0)
-        if count > 0:
-            weight = total / (len(label_counts) * count)
-        else:
-            weight = 0.0
-        class_weights.append(weight)
-    class_weights = torch.tensor(class_weights, dtype=torch.float)
+    from sklearn.utils.class_weight import compute_class_weight
+
+    all_labels = [example["labels"] for example in dataset["train"]]
+    class_weights_np = compute_class_weight(class_weight='balanced', classes=np.unique(all_labels), y=all_labels)
+    class_weights = torch.tensor(class_weights_np, dtype=torch.float)
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
 
