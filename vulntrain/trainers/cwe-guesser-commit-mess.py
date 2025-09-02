@@ -90,7 +90,16 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     from sklearn.utils.class_weight import compute_class_weight
 
     all_labels = [example["labels"] for example in dataset["train"]]
-    class_weights_np = compute_class_weight(class_weight='balanced', classes=np.unique(all_labels), y=all_labels)
+
+    all_possible_classes = np.arange(len(cwe_to_id))
+
+    # On attribue un poids de 0 aux classes absentes automatiquement sinon crash
+    class_weights_np = compute_class_weight(
+        class_weight='balanced',
+        classes=all_possible_classes,
+        y=all_labels
+    )
+
     class_weights = torch.tensor(class_weights_np, dtype=torch.float)
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
