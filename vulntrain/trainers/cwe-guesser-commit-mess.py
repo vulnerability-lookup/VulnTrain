@@ -6,20 +6,15 @@ import torch
 import json
 import numpy as np
 import evaluate
+import os
 import re
 from collections import Counter
-from pathlib import Path
 
-from transformers import (
-    AutoModelForSequenceClassification,
-    Trainer,
-    TrainingArguments,
-    DataCollatorWithPadding,
-    AutoTokenizer,
-    EarlyStoppingCallback,
-)
+from transformers import AutoModelForSequenceClassification
 from codecarbon import track_emissions
-from sklearn.metrics import f1_score, accuracy_score, top_k_accuracy_score
+from sklearn.metrics import f1_score, accuracy_score
+from pathlib import Path
+from transformers import Trainer, TrainingArguments, DataCollatorWithPadding, AutoTokenizer
 from datasets import load_dataset
 
 accuracy = evaluate.load("accuracy")
@@ -28,11 +23,11 @@ f1 = evaluate.load("f1", config_name="macro")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 def extract_cwe_id(cwe_string):
     match = re.search(r"CWE-(\d+)", cwe_string)
-    return match.group(1) if match else None
-
+    if match:
+        return match.group(1)
+    return None
 
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
@@ -40,40 +35,20 @@ def compute_metrics(eval_pred):
     return {
         "accuracy": accuracy_score(labels, predictions),
         "f1_macro": f1_score(labels, predictions, average="macro", zero_division=0),
-        "top2_acc": top_k_accuracy_score(labels, logits, k=2, labels=np.arange(logits.shape[1])),
-        "top3_acc": top_k_accuracy_score(labels, logits, k=3, labels=np.arange(logits.shape[1])),
-        "top5_acc": top_k_accuracy_score(labels, logits, k=5, labels=np.arange(logits.shape[1])),
     }
-
-
-class FocalLoss(torch.nn.Module):
-    def __init__(self, alpha=None, gamma=2.0, reduction='mean'):
-        super().__init__()
-        self.register_buffer("alpha", alpha)
-        self.gamma = gamma
-        self.reduction = reduction
-
-    def forward(self, logits, targets):
-        alpha = self.alpha.to(logits.device) if self.alpha is not None else None
-        ce_loss = torch.nn.functional.cross_entropy(logits, targets, weight=alpha, reduction='none')
-        pt = torch.exp(-ce_loss)
-        focal_loss = (1 - pt) ** self.gamma * ce_loss
-        return focal_loss.mean() if self.reduction == 'mean' else focal_loss.sum() if self.reduction == 'sum' else focal_loss
-
 
 class WeightedTrainer(Trainer):
     def __init__(self, *args, class_weights=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.class_weights = class_weights
-        self.loss_fct = FocalLoss(alpha=self.class_weights)
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         labels = inputs.get("labels")
         outputs = model(**inputs)
         logits = outputs.get("logits")
-        loss = self.loss_fct(logits, labels)
+        loss_fct = torch.nn.CrossEntropyLoss(weight=self.class_weights.to(logits.device))
+        loss = loss_fct(logits, labels)
         return (loss, outputs) if return_outputs else loss
-
 
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
@@ -111,10 +86,17 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     print("-------------- Train examples:", len(dataset["train"]))
     print("-------------- Test examples :", len(dataset["test"]))
 
-    # Compute class weights
+    # Compute class weights parce que classes desequilibrees
     label_counts = Counter(example["labels"] for example in dataset["train"])
     total = sum(label_counts.values())
-    class_weights = [total / (len(label_counts) * label_counts.get(i, 1)) for i in range(len(cwe_to_id))]
+    class_weights = []
+    for i in range(len(cwe_to_id)):
+        count = label_counts.get(i, 0)
+        if count > 0:
+            weight = total / (len(label_counts) * count)
+        else:
+            weight = 0.0
+        class_weights.append(weight)
     class_weights = torch.tensor(class_weights, dtype=torch.float)
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
@@ -122,15 +104,16 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     def extract_commit_text(example):
         patch_list = example.get("patches", [])
         description = example.get("description", "")
-        patch_text = ""
 
-        if isinstance(patch_list, list) and patch_list:
+        patch_text = ""
+        if isinstance(patch_list, list) and len(patch_list) > 0:
             patch = patch_list[0]
             commit_msg = patch.get("commit_message", "")
             patch_text_b64 = patch.get("patch_text_b64", "")
             try:
                 decoded_patch = base64.b64decode(patch_text_b64).decode("utf-8")
-            except Exception:
+            except Exception as e:
+                print(">< Error decoding patch:", e)
                 decoded_patch = ""
             patch_text = f"{commit_msg}\n{decoded_patch}".strip()
 
@@ -146,7 +129,10 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
 
     tokenized_dataset = dataset.map(tokenize_function, batched=True)
 
-    model = AutoModelForSequenceClassification.from_pretrained(base_model, num_labels=len(cwe_to_id))
+    model = AutoModelForSequenceClassification.from_pretrained(
+        base_model,
+        num_labels=len(cwe_to_id)
+    )
 
     training_args = TrainingArguments(
         output_dir=model_save_dir,
@@ -160,8 +146,6 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         logging_dir="./logs",
         logging_steps=20,
         load_best_model_at_end=True,
-        metric_for_best_model="eval_loss",
-        greater_is_better=False,
         push_to_hub=True,
         hub_model_id=repo_id,
     )
@@ -175,22 +159,26 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         data_collator=DataCollatorWithPadding(tokenizer),
         compute_metrics=compute_metrics,
         class_weights=class_weights,
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
     )
+
+    from transformers import AutoConfig
 
     try:
         trainer.train()
     finally:
         model.save_pretrained(model_save_dir)
         tokenizer.save_pretrained(model_save_dir)
+
         model.config.id2label = id_to_cwe
         model.config.label2id = cwe_to_id
         model.config.num_labels = len(cwe_to_id)
         model.config.problem_type = "single_label_classification"
+
         model.config.save_pretrained(model_save_dir)
 
     metrics = trainer.evaluate()
-    with open(Path(model_save_dir) / "metrics.json", "w") as f:
+    metrics_path = Path(model_save_dir) / "metrics.json"
+    with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=4)
 
     trainer.push_to_hub(repo_id)
@@ -204,6 +192,7 @@ def main():
         default="roberta-base",
         help="Base transformer model to use (e.g., roberta-base, codebert-base, etc.).",
     )
+
     parser.add_argument(
         "--dataset-id",
         required=True,
