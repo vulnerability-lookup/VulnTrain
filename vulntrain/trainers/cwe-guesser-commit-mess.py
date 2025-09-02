@@ -91,16 +91,22 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
 
     all_labels = [example["labels"] for example in dataset["train"]]
 
-    all_possible_classes = np.arange(len(cwe_to_id))
+    num_classes = len(cwe_to_id)
+    present_classes = np.unique(all_labels)
 
-    # On attribue un poids de 0 aux classes absentes automatiquement sinon crash
-    class_weights_np = compute_class_weight(
+    present_weights = compute_class_weight(
         class_weight='balanced',
-        classes=all_possible_classes,
+        classes=present_classes,
         y=all_labels
     )
 
-    class_weights = torch.tensor(class_weights_np, dtype=torch.float)
+    full_weights = np.zeros(num_classes, dtype=np.float32)
+
+    # We fill only the present class weights 
+    for cls, weight in zip(present_classes, present_weights):
+        full_weights[cls] = weight
+
+    class_weights = torch.tensor(full_weights, dtype=torch.float)
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
 
