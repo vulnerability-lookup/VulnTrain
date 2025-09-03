@@ -198,8 +198,9 @@ def main():
     parser = argparse.ArgumentParser(description="Train a vulnerability classifier using CWE labels.")
     parser.add_argument(
         "--base-model",
-        default="roberta-base",
-        help="Base transformer model to use (e.g., roberta-base, codebert-base, etc.).",
+        nargs="+",  # to make a list of models
+        required=True,
+        help="Un ou plusieurs modèles à tester (ex: roberta-base distilbert-base-uncased)",
     )
 
     parser.add_argument(
@@ -229,7 +230,24 @@ def main():
     logger.info(f"Saving model to: {args.model_save_dir}")
     logger.info("Starting the training process…")
 
-    train(args.base_model, args.dataset_id, args.repo_id, args.model_save_dir)
+    for base_model in args.base_model:
+        model_name_sanitized = base_model.replace("/", "-")
+        repo_id = f"{args.repo_id}-{model_name_sanitized}"
+        save_dir = os.path.join(args.model_save_dir, model_name_sanitized)
+
+        logger.info("="*80)
+        logger.info(f"----------- Training with base model: {base_model}")
+        logger.info(f"-------------- Model will be saved to: {save_dir}")
+        logger.info(f"----------------- Will be pushed to Hub at: {repo_id}")
+        logger.info("="*80)
+
+        # Clean save dir if it exists
+        dir_path = Path(save_dir)
+        if dir_path.exists() and dir_path.is_dir():
+            shutil.rmtree(dir_path)
+
+        train(base_model, args.dataset_id, repo_id, save_dir)
+
 
 if __name__ == "__main__":
     main()
