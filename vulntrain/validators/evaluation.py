@@ -6,7 +6,10 @@ import os
 import re
 
 def extract_cwe_label(pred_id, id2cwe):
-    return id2cwe.get(str(pred_id), f"Unknown({pred_id})")
+    raw_label = id2cwe.get(str(pred_id))
+    if raw_label:
+        return f"CWE-{raw_label}"
+    return f"Unknown({pred_id})"
 
 def load_id2cwe(model_dir):
     config_path = os.path.join(model_dir, "config.json")
