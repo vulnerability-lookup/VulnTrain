@@ -11,14 +11,20 @@ def extract_cwe_label(pred_id, id2cwe):
         return f"CWE-{raw}"
     return f"Unknown({pred_id})"
 
+from transformers import AutoConfig
 
 def load_id2cwe(model_dir):
-    config_path = os.path.join(model_dir, "config.json")
-    if not os.path.exists(config_path):
+    try:
+        config = AutoConfig.from_pretrained(model_dir)
+        id2label = config.id2label
+        if not id2label:
+            print(f"[WARNING] No id2label found in config for {model_dir}")
+            return {}
+        return {str(k): v for k, v in id2label.items()}
+    except Exception as e:
+        print(f"[ERROR] Failed to load config for {model_dir}: {e}")
         return {}
-    with open(config_path, "r") as f:
-        config = json.load(f)
-        return {str(k): v for k, v in config.get("id2label", {}).items()}
+
 
 def predict(model_dir, texts):
     print(f"\n =================================== Loading model from: {model_dir}")
