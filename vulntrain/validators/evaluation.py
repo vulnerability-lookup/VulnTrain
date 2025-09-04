@@ -1,4 +1,5 @@
 import argparse
+from collections import defaultdict
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 import torch
 import json
@@ -27,7 +28,7 @@ def load_id2cwe(model_dir):
 
 
 def predict(model_dir, texts, output_file=None):
-    print(f"\n ======================================= Loading model from: {model_dir}")
+    print(f"\n[INFO] Loading model from: {model_dir}")
     tokenizer = AutoTokenizer.from_pretrained(model_dir)
     model = AutoModelForSequenceClassification.from_pretrained(model_dir)
     model.eval()
@@ -40,16 +41,11 @@ def predict(model_dir, texts, output_file=None):
         predictions = torch.argmax(outputs.logits, dim=-1)
 
     results = []
-    for i, (text, pred_id) in enumerate(zip(texts, predictions.tolist())):
+    for i, pred_id in enumerate(predictions.tolist()):
         label = extract_cwe_label(pred_id, id2cwe)
-        result = f"--- Example {i+1} ---\nModel: {model_dir}\nPredicted CWE: {label}\n"
-        print(result)
-        results.append(result)
+        results.append((i, model_dir, label))  # We just return the data, don't print
 
-    if output_file:
-        with open(output_file, "a") as f:
-            for line in results:
-                f.write(line + "\n")
+    return results
 
 
 def main():
@@ -66,7 +62,7 @@ def main():
         default="results.txt",
         help="Output file to store predictions",
     )
-
+    
     args = parser.parse_args()
 
     # Sample vulnerability descriptions
@@ -151,8 +147,21 @@ def main():
         "Misskey is an open source, federated social media platform. The patch for CVE-2024-52591 did not sufficiently validate the relation between the `id` and `url` fields of ActivityPub objects. An attacker can forge an object where they claim authority in the `url` field even if the specific ActivityPub object type require authority in the `id` field. Version 2025.2.1 addresses the issue."
     ]
 
+    grouped_results = defaultdict(list)
+
     for model_dir in args.model_dirs:
-        predict(model_dir, vuln_summaries, output_file=args.output_file)
+        results = predict(model_dir, vuln_summaries)
+        for idx, model, label in results:
+            grouped_results[idx].append((model, label))
+
+    with open(args.output_file, "w") as f:
+        for idx in sorted(grouped_results):
+            description = vuln_summaries[idx].strip().replace("\n", " ")
+            f.write(f'Example {idx + 1}: "{description}"\n')
+            for model, label in grouped_results[idx]:
+                f.write(f"  Model: {model}\n")
+                f.write(f"  Predicted CWE: {label}\n")
+            f.write("\n")
 
 if __name__ == "__main__":
     main()
