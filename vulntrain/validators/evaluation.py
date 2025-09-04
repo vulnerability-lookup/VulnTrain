@@ -6,10 +6,11 @@ import os
 import re
 
 def extract_cwe_label(pred_id, id2cwe):
-    raw_label = id2cwe.get(str(pred_id))
-    if raw_label:
-        return f"CWE-{raw_label}"
+    raw = id2cwe.get(str(pred_id))
+    if raw:
+        return f"CWE-{raw}"
     return f"Unknown({pred_id})"
+
 
 def load_id2cwe(model_dir):
     config_path = os.path.join(model_dir, "config.json")
@@ -20,7 +21,7 @@ def load_id2cwe(model_dir):
         return {str(k): v for k, v in config.get("id2label", {}).items()}
 
 def predict(model_dir, texts):
-    print(f"\n🧠 Loading model from: {model_dir}")
+    print(f"\n =================================== Loading model from: {model_dir}")
     tokenizer = AutoTokenizer.from_pretrained(model_dir)
     model = AutoModelForSequenceClassification.from_pretrained(model_dir)
     model.eval()
