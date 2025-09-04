@@ -3,6 +3,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 import torch
 import json
 import os
+import re
 
 def extract_cwe_label(pred_id, id2cwe):
     raw = id2cwe.get(str(pred_id))
@@ -10,17 +11,23 @@ def extract_cwe_label(pred_id, id2cwe):
         return f"CWE-{raw}"
     return f"Unknown({pred_id})"
 
+from transformers import AutoConfig
+
 def load_id2cwe(model_dir):
-    config_path = os.path.join(model_dir, "config.json")
-    if not os.path.exists(config_path):
-        print(f"[WARNING] No config.json found in {model_dir}")
+    try:
+        config = AutoConfig.from_pretrained(model_dir)
+        id2label = config.id2label
+        if not id2label:
+            print(f"[WARNING] No id2label found in config for {model_dir}")
+            return {}
+        return {str(k): v for k, v in id2label.items()}
+    except Exception as e:
+        print(f"[ERROR] Failed to load config for {model_dir}: {e}")
         return {}
-    with open(config_path, "r") as f:
-        config = json.load(f)
-        return {str(k): v for k, v in config.get("id2label", {}).items()}
+
 
 def predict(model_dir, texts, output_file=None):
-    print(f"\n================================= Loading model from: {model_dir}")
+    print(f"\n ======================================= Loading model from: {model_dir}")
     tokenizer = AutoTokenizer.from_pretrained(model_dir)
     model = AutoModelForSequenceClassification.from_pretrained(model_dir)
     model.eval()
@@ -35,28 +42,29 @@ def predict(model_dir, texts, output_file=None):
     results = []
     for i, (text, pred_id) in enumerate(zip(texts, predictions.tolist())):
         label = extract_cwe_label(pred_id, id2cwe)
-        result = f"--- Example {i+1} ---\nModel: {model_dir}\nPredicted CWE: {label}\nText: {text}\n"
+        result = f"--- Example {i+1} ---\nModel: {model_dir}\nPredicted CWE: {label}\n"
         print(result)
         results.append(result)
 
     if output_file:
-        with open(output_file, "a", encoding="utf-8") as f:
+        with open(output_file, "a") as f:
             for line in results:
                 f.write(line + "\n")
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate CWE classification model(s).")
+    parser = argparse.ArgumentParser(description="Evaluate multiple CWE classification models.")
     parser.add_argument(
         "--model-dirs",
         nargs="+",
         required=True,
-        help="List of local directories or HuggingFace model names.",
+        help="List of local directories containing fine-tuned models (or Hub model IDs).",
     )
     parser.add_argument(
         "--output-file",
         type=str,
         default="results.txt",
-        help="Path to save the predictions.",
+        help="Output file to store predictions",
     )
 
     args = parser.parse_args()
