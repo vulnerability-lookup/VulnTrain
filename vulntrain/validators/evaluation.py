@@ -60,10 +60,16 @@ def main():
         required=True,
         help="List of local directories containing fine-tuned models (or Hub model IDs).",
     )
+    parser.add_argument(
+        "--output-file",
+        type=str,
+        default="results.txt",
+        help="Output file to store predictions",
+    )
 
     args = parser.parse_args()
 
-    # Sample vulnerability descriptions (can be replaced with actual test set)
+    # Sample vulnerability descriptions
     vuln_summaries = [
         #664
         "In crypt.c of remote-login-service, the cryptographic algorithm used to cache usernames and passwords is insecure. An attacker could use this vulnerability to recover usernames and passwords from the file. This issue affects version 1.0.0-0ubuntu3 and prior versions.",
@@ -146,7 +152,7 @@ def main():
     ]
 
     for model_dir in args.model_dirs:
-        predict(model_dir, vuln_summaries)
+        predict(model_dir, vuln_summaries, output_file=args.output_file)
 
 if __name__ == "__main__":
     main()
