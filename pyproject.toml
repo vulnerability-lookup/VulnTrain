@@ -42,8 +42,9 @@ Changelog = "https://github.com/vulnerability-lookup/VulnTrain/blob/main/CHANGEL
 # Commands for datasets generation:
 vulntrain-dataset-generation = "vulntrain.datasets.create_dataset:main"
 # Commands for trainings:
-vulntrain-train-description-generation = "vulntrain.trainers.summarize:main"
-vulntrain-train-severity-classification = "vulntrain.trainers.classify:main"
+vulntrain-train-description-generation = "vulntrain.trainers.generation_description:main"
+vulntrain-train-severity-classification = "vulntrain.trainers.classify_severity:main"
+vulntrain-train-severity-cnvd-classification = "vulntrain.trainers.classify_severity_cnvd:main"
 # Commands for validations:
 vulntrain-validate-text-generation = "vulntrain.validators.summarize:main"
 vulntrain-validate-severity-classification = "vulntrain.validators.severity:main"

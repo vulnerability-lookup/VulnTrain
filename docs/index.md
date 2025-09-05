@@ -73,7 +73,7 @@ python vulntrain/datasets/cwe-guesser-dataset.py --sources cvelistv5,github,pyse
 
 ## Model training
 
-### Training for classification
+### Training for severity classification
 
 Generate the model [CIRCL/vulnerability-severity-classification-roberta-base](https://huggingface.co/CIRCL/vulnerability-severity-classification-roberta-base):
 
@@ -84,8 +84,12 @@ vulntrain-train-severity-classification --base-model roberta-base --dataset-id C
 Generate the model [CIRCL/vulnerability-severity-classification-chinese-macbert-base](https://huggingface.co/CIRCL/vulnerability-severity-classification-chinese-macbert-base):
 
 ```bash
-python vulntrain/trainers/classify-cnvd.py --base-model hfl/chinese-macbert-base --dataset-id CIRCL/Vulnerability-CNVD --repo-id CIRCL/vulnerability-severity-classification-chinese-macbert-base
+vulntrain-train-severity-cnvd-classification --base-model hfl/chinese-macbert-base --dataset-id CIRCL/Vulnerability-CNVD --repo-id CIRCL/vulnerability-severity-classification-chinese-macbert-base
 ```
+
+### Training for CWE classification
+
+
 
 
 ### Training for text generation
@@ -142,7 +146,7 @@ options:
 Example:
 
 ```bash
-$ vulntrain-validate-text-generation --prompt "A new vulnerability in OpenSSL allows attackers to" --model CIRCL/vulnerability
+$ vulntrain-validate-text-generation --prompt "A new vulnerability in OpenSSL allows attackers to" --model CIRCL/vulnerability-description-generation-gpt2-large
 config.json: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 907/907 [00:00<00:00, 6.70MB/s]
 model.safetensors: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 498M/498M [00:12<00:00, 41.3MB/s]
 generation_config.json: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 119/119 [00:00<00:00, 1.63MB/s]
@@ -152,9 +156,8 @@ merges.txt: 100%|█████████████████████
 tokenizer.json: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 3.56M/3.56M [00:00<00:00, 10.3MB/s]
 special_tokens_map.json: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 470/470 [00:00<00:00, 3.51MB/s]
 Device set to use cuda:0
-Truncation was not explicitly activated but `max_length` is provided a specific value, please use `truncation=True` to explicitly truncate examples to max length. Defaulting to 'longest_first' truncation strategy. If you encode pairs of sequences (GLUE-style) with the tokenizer you can select this strategy more precisely by providing a specific strategy to `truncation`.
 
-[{'generated_text': 'A new vulnerability in OpenSSL allows attackers to cause a Denial of Service (DoS) when receiving a specially crafted SIP message.\n\n\nThis issue affects: OpenSSL versions prior to 1.2.1\n\n\n\n *  OpenSSL 1.2.1 prior to 1.2.1-HF1, which fixes this issue.\n\n *  OpenSSL version 1.2.1 prior to 1.2.1-HF1 and OpenSSL 1.2.2 prior'}]
+[{'generated_text': 'A new vulnerability in OpenSSL allows attackers to bypass the TLS 1.2.1 server-side certificate validation by using a specially crafted (but not necessarily signed) client certificate to connect to a server. This issue affects: OpenSSL 3.0 versions prior to 3.0.4.1. OpenSSL 2.0 versions prior to 2.0.0.43. OpenSSL 1.1 versions prior to 1.1.0.27. OpenSSL 1.0 versions prior to 1.0.1.22. OpenSSL 0.9.6 versions prior to 0.9.6i.7. OpenSSL 0.8.7 versions prior to 0.8.7p14. Fixed in OpenSSL 3.0.4.1 (Affected 3.0.0,3.0.1,3.0.2). Fixed in OpenSSL 2.0.0.43 (Affected 2.0.0.43). Fixed in OpenSSL 1.1.0.27 (Affected 1.1.0.26). Fixed in OpenSSL 1.0.1.22 (Affected 1.0.1.21). Fixed in OpenSSL 0.9.6i.7 (Affected 0'}]
 ```
 
 ## Citation

@@ -6,7 +6,7 @@ labels = ["low", "medium", "high", "critical"]
 
 def main():
     # Load model and tokenizer
-    model_name = "CIRCL/vulnerability-severity-classification-distilbert-base-uncased"
+    model_name = "CIRCL/vulnerability-severity-classification-roberta-base"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSequenceClassification.from_pretrained(model_name)
     model.eval()

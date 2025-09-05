@@ -34,7 +34,7 @@ Three types of commands are available:
 - **Model training**: Train models using the prepared datasets.
   - Train a model to **classify** vulnerabilities by severity. [![Model on HF](https://huggingface.co/datasets/huggingface/badges/resolve/main/model-on-hf-sm-dark.svg)](https://huggingface.co/CIRCL/vulnerability-severity-classification-roberta-base)
   - Train a model for **text generation** to assist in writing vulnerability descriptions [![Model on HF](https://huggingface.co/datasets/huggingface/badges/resolve/main/model-on-hf-sm-dark.svg)](https://huggingface.co/CIRCL/vulnerability-description-generation-gpt2#how-to-get-started-with-the-model)
-- **Model validation**: Assess the performance of trained models.
+- **Model validation**: Assess the performance of trained models (validations, benchmarks, etc.).
 
 
 Check out the [documentation](docs/) for more information.
