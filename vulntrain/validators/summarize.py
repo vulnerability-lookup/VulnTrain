@@ -17,7 +17,7 @@ def main():
         "--model",
         dest="model",
         help="The model to use.",
-        default="CIRCL/vuln-model-test",
+        default="CIRCL/vulnerability-description-generation-gpt2-large",
     )
     parser.add_argument(
         "--prompt",
