@@ -14,7 +14,12 @@ from transformers import AutoModelForSequenceClassification
 from codecarbon import track_emissions
 from sklearn.metrics import f1_score, accuracy_score
 from pathlib import Path
-from transformers import Trainer, TrainingArguments, DataCollatorWithPadding, AutoTokenizer
+from transformers import (
+    Trainer,
+    TrainingArguments,
+    DataCollatorWithPadding,
+    AutoTokenizer,
+)
 from datasets import load_dataset
 
 accuracy = evaluate.load("accuracy")
@@ -23,11 +28,13 @@ f1 = evaluate.load("f1", config_name="macro")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 def extract_cwe_id(cwe_string):
     match = re.search(r"CWE-(\d+)", cwe_string)
     if match:
         return match.group(1)
     return None
+
 
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
@@ -37,18 +44,24 @@ def compute_metrics(eval_pred):
         "f1_macro": f1_score(labels, predictions, average="macro", zero_division=0),
     }
 
+
 class WeightedTrainer(Trainer):
     def __init__(self, *args, class_weights=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.class_weights = class_weights
 
-    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+    def compute_loss(
+        self, model, inputs, return_outputs=False, num_items_in_batch=None
+    ):
         labels = inputs.get("labels")
         outputs = model(**inputs)
         logits = outputs.get("logits")
-        loss_fct = torch.nn.CrossEntropyLoss(weight=self.class_weights.to(logits.device))
+        loss_fct = torch.nn.CrossEntropyLoss(
+            weight=self.class_weights.to(logits.device)
+        )
         loss = loss_fct(logits, labels)
         return (loss, outputs) if return_outputs else loss
+
 
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
@@ -95,14 +108,12 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     present_classes = np.unique(all_labels)
 
     present_weights = compute_class_weight(
-        class_weight='balanced',
-        classes=present_classes,
-        y=all_labels
+        class_weight="balanced", classes=present_classes, y=all_labels
     )
 
     full_weights = np.zeros(num_classes, dtype=np.float32)
 
-    # We fill only the present class weights 
+    # We fill only the present class weights
     for cls, weight in zip(present_classes, present_weights):
         full_weights[cls] = weight
 
@@ -139,8 +150,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     tokenized_dataset = dataset.map(tokenize_function, batched=True)
 
     model = AutoModelForSequenceClassification.from_pretrained(
-        base_model,
-        num_labels=len(cwe_to_id)
+        base_model, num_labels=len(cwe_to_id)
     )
 
     training_args = TrainingArguments(
@@ -195,7 +205,9 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train a vulnerability classifier using CWE labels.")
+    parser = argparse.ArgumentParser(
+        description="Train a vulnerability classifier using CWE labels."
+    )
     parser.add_argument(
         "--base-model",
         nargs="+",  # to make a list of models
@@ -235,11 +247,11 @@ def main():
         repo_id = f"{args.repo_id}-{model_name_sanitized}"
         save_dir = os.path.join(args.model_save_dir, model_name_sanitized)
 
-        logger.info("="*80)
+        logger.info("=" * 80)
         logger.info(f"----------- Training with base model: {base_model}")
         logger.info(f"-------------- Model will be saved to: {save_dir}")
         logger.info(f"----------------- Will be pushed to Hub at: {repo_id}")
-        logger.info("="*80)
+        logger.info("=" * 80)
 
         # Clean save dir if it exists
         dir_path = Path(save_dir)

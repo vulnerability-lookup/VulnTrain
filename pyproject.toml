@@ -5,7 +5,7 @@ build-backend = "poetry.core.masonry.api"
 
 [project]
 name = "VulnTrain"
-version = "1.5.0"
+version = "2.0.0"
 description = "Generate datasets amd models based on vulnerabilities data from Vulnerability-Lookup."
 authors = [
     {name = "Cédric Bonhomme", email = "cedric.bonhomme@circl.lu"},
@@ -45,6 +45,7 @@ vulntrain-dataset-generation = "vulntrain.datasets.create_dataset:main"
 vulntrain-train-description-generation = "vulntrain.trainers.generation_description:main"
 vulntrain-train-severity-classification = "vulntrain.trainers.classify_severity:main"
 vulntrain-train-severity-cnvd-classification = "vulntrain.trainers.classify_severity_cnvd:main"
+vulntrain-train-cwe-classification = "vulntrain.trainers.cwe_guesser_patches:main"
 # Commands for validations:
 vulntrain-validate-text-generation = "vulntrain.validators.summarize:main"
 vulntrain-validate-severity-classification = "vulntrain.validators.severity:main"

@@ -1,25 +1,24 @@
 import argparse
+import base64
 import json
 import logging
-import time
-import base64 
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Any, Dict, Generator, Optional
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datasets import load_dataset  
 
-from typing import Any, Dict, List, Optional, Generator
 import requests
+from datasets import load_dataset
 
 from vulntrain.config import GITHUB_TOKEN
 from vulntrain.utils import (
     strip_markdown,
 )
 
-# Logging Setup 
+# Logging Setup
 
-logger = logging.getLogger("vuln_logger") 
+logger = logging.getLogger("vuln_logger")
 logger.setLevel(logging.INFO)
 
 if not logger.handlers:
@@ -28,20 +27,23 @@ if not logger.handlers:
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
+
 def log(level: str, message: str, display: bool = False):
     level = level.lower()
     getattr(logger, level)(message)
-    #if display:
-        #print(f"{datetime.now().isoformat()} - {level.upper()} - {message}")
+    # if display:
+    # print(f"{datetime.now().isoformat()} - {level.upper()} - {message}")
 
-# Constants 
+
+# Constants
 
 HEADERS = {"Authorization": f"token {GITHUB_TOKEN}"}
 DEFAULT_TIMEOUT = 10
 MAX_WORKERS = 16
 MAX_RETRIES = 3
 
-# VulnExtractor 
+# VulnExtractor
+
 
 class VulnExtractor:
     def __init__(self, sources: list[str], nb_rows: int):
@@ -57,7 +59,11 @@ class VulnExtractor:
             retries = 0
             while retries < MAX_RETRIES:
                 try:
-                    response = requests.get(url, headers={"accept": "application/json"}, timeout=DEFAULT_TIMEOUT)
+                    response = requests.get(
+                        url,
+                        headers={"accept": "application/json"},
+                        timeout=DEFAULT_TIMEOUT,
+                    )
                     response.raise_for_status()
                     data = response.json()
                     if not data:
@@ -67,12 +73,20 @@ class VulnExtractor:
                     page += 1
                     break
                 except requests.exceptions.Timeout:
-                    wait = 2 ** retries
-                    log("warning", f"[Timeout] Retrying page {page} from '{source}' in {wait}s", display=True)
+                    wait = 2**retries
+                    log(
+                        "warning",
+                        f"[Timeout] Retrying page {page} from '{source}' in {wait}s",
+                        display=True,
+                    )
                     time.sleep(wait)
                     retries += 1
                 except requests.RequestException as e:
-                    log("error", f"[Error] Failed to fetch page {page} from '{source}': {e}", display=True)
+                    log(
+                        "error",
+                        f"[Error] Failed to fetch page {page} from '{source}': {e}",
+                        display=True,
+                    )
                     return
 
     def is_url_alive(self, url: str, timeout: int = 5) -> bool:
@@ -84,7 +98,6 @@ class VulnExtractor:
         except requests.RequestException as e:
             log("warning", f"URL check failed for {url}: {e}", display=True)
             return False
-
 
     def filter_alive_links(self, urls: list[str]) -> list[str]:
         futures = {self.executor.submit(self.is_url_alive, url): url for url in urls}
@@ -105,14 +118,17 @@ class VulnExtractor:
             return self._fetch_patch_generic(url, "gitlab")
         return None
 
-    def _fetch_patch_generic(self, url: str, platform: str, headers: dict[str, str] = {}) -> Optional[dict[str, str]]:
+    def _fetch_patch_generic(
+        self, url: str, platform: str, headers: dict[str, str] = {}
+    ) -> Optional[dict[str, str]]:
         patch_url = url if url.endswith(".patch") else url + ".patch"
         try:
             response = requests.get(patch_url, headers=headers, timeout=DEFAULT_TIMEOUT)
             response.raise_for_status()
             patch_text = response.text.strip()
-            patch_text_b64 = base64.b64encode(patch_text.encode("utf-8")).decode("utf-8")
-
+            patch_text_b64 = base64.b64encode(patch_text.encode("utf-8")).decode(
+                "utf-8"
+            )
 
             lines = patch_text.splitlines()
             commit_msg_lines = []
@@ -128,16 +144,18 @@ class VulnExtractor:
             print(f"Encoded patch (first 100 chars): {patch_text_b64[:100]}...")
             return {
                 "url": url,
-                #"platform": platform,
+                # "platform": platform,
                 "patch_text_b64": patch_text_b64,
-                "commit_message": commit_message
+                "commit_message": commit_message,
             }
         except Exception as e:
             log("error", f"{platform.upper()} patch fetch failed: {patch_url} | {e}")
             return None
 
     def _parallel_fetch_patches(self, urls: list[str]) -> list[dict[str, str]]:
-        futures = {self.executor.submit(self.fetch_patch_and_message, url): url for url in urls}
+        futures = {
+            self.executor.submit(self.fetch_patch_and_message, url): url for url in urls
+        }
         results = []
         for future in as_completed(futures):
             try:
@@ -152,11 +170,18 @@ class VulnExtractor:
         try:
             vuln_id = vuln["cveMetadata"]["cveId"]
             title = vuln["containers"]["cna"].get("title", "")
-            desc = next((d["value"] for d in vuln["containers"]["cna"].get("descriptions", []) if d["lang"].startswith("en")), "")
+            desc = next(
+                (
+                    d["value"]
+                    for d in vuln["containers"]["cna"].get("descriptions", [])
+                    if d["lang"].startswith("en")
+                ),
+                "",
+            )
 
             patch_urls = [
-                ref.get("url", "") 
-                for ref in vuln["containers"]["cna"].get("references", []) 
+                ref.get("url", "")
+                for ref in vuln["containers"]["cna"].get("references", [])
                 if "tags" in ref and "patch" in ref["tags"]
             ]
             patch_urls = self.filter_alive_links(patch_urls)
@@ -169,7 +194,9 @@ class VulnExtractor:
             problem_types = vuln["containers"]["cna"].get("problemTypes", [])
             if problem_types and problem_types[0].get("descriptions"):
                 cwe_id = problem_types[0]["descriptions"][0].get("cweId", "").strip()
-                cwe_desc = problem_types[0]["descriptions"][0].get("description", "").strip()
+                cwe_desc = (
+                    problem_types[0]["descriptions"][0].get("description", "").strip()
+                )
 
             if not cwe_id and not cwe_desc:
                 return {}
@@ -184,17 +211,20 @@ class VulnExtractor:
                 "title": title,
                 "description": desc,
                 "patches": patches,
-                "cwe": cwe
+                "cwe": cwe,
             }
 
         except Exception as e:
             log("error", f"extract_cve failed: {e}")
             return {}
 
-
     def extract_ghsa(self, vuln: dict[str, Any]) -> dict[str, Any]:
         refs = vuln.get("references", [])
-        patch_urls = [ref.get("url", "") for ref in refs if "type" in ref and "patch" in ref["type"].lower()]
+        patch_urls = [
+            ref.get("url", "")
+            for ref in refs
+            if "type" in ref and "patch" in ref["type"].lower()
+        ]
         patch_urls = self.filter_alive_links(patch_urls)
         if not patch_urls:
             return {}
@@ -210,7 +240,6 @@ class VulnExtractor:
             "patch_links": patch_urls,
         }
 
-
     def extract_csaf(self, vuln: Dict[str, Any]) -> Dict[str, Any]:
         description = " ".join(
             note["text"]
@@ -223,7 +252,7 @@ class VulnExtractor:
                 for note in vuln.get("document", {}).get("notes", [])
                 if note.get("category") == "summary"
             ),
-            ""
+            "",
         )
 
         refs = vuln.get("document", {}).get("references", [])
@@ -255,10 +284,8 @@ class VulnExtractor:
             "title": vuln["document"]["title"],
             "description": description,
             "patch_links": patch_urls,
-            "cwe": cwes
+            "cwe": cwes,
         }
-
-
 
     def __call__(self) -> Generator[dict[str, Any], None, None]:
         print("Starting extraction loop")
@@ -267,7 +294,7 @@ class VulnExtractor:
             extractor = {
                 "cvelistv5": self.extract_cve,
                 "github": self.extract_ghsa,
-                #"pysec": self.extract_pysec,
+                # "pysec": self.extract_pysec,
             }.get(source) or (self.extract_csaf if source.startswith("csaf_") else None)
 
             if not extractor:
@@ -288,9 +315,13 @@ class VulnExtractor:
                     yield vuln_data
                     count += 1
                     print(f"[{count}] Saved: {vuln_data.get('id')}")
-                    log("info", f"{count} - Extracted: {vuln_data.get('id')}", display=True)
+                    log(
+                        "info",
+                        f"{count} - Extracted: {vuln_data.get('id')}",
+                        display=True,
+                    )
 
-                    #pushing to Hugging Face every 50 examples
+                    # pushing to Hugging Face every 50 examples
                     if count % 50 == 0:
                         print(f"Pushing to Hugging Face Hub at count={count}...")
                         dataset = load_dataset("json", data_files="data.jsonl")["train"]
@@ -299,36 +330,52 @@ class VulnExtractor:
                 except Exception as e:
                     log("error", f"Error processing vulnerability: {e}")
 
-            if count % 50 !=0 :
-                print ("Final push to Hugging Face with last entries ...")
+            if count % 50 != 0:
+                print("Final push to Hugging Face with last entries ...")
                 dataset = load_dataset("json", data_files="data.jsonl")["train"]
                 dataset.push_to_hub("CIRCL/vulnerability-cwe-patch")
 
-# Main 
+
+# Main
 from datasets import Dataset
+
+
 def main():
     if os.path.exists("data.jsonl"):
         os.remove("data.jsonl")
-    
-    #Reset the dataset on Hugging Face Hub   
-    empty_dataset = Dataset.from_dict({
-        "id": [],
-        "title": [],
-        "description": [],
-        "patches": [],
-        "cwe": [],
-    })
-    empty_dataset.push_to_hub("CIRCL/vulnerability-cwe-patch", commit_message="Reset without 'references'")
 
-    
+    # Reset the dataset on Hugging Face Hub
+    empty_dataset = Dataset.from_dict(
+        {
+            "id": [],
+            "title": [],
+            "description": [],
+            "patches": [],
+            "cwe": [],
+        }
+    )
+    empty_dataset.push_to_hub(
+        "CIRCL/vulnerability-cwe-patch", commit_message="Reset without 'references'"
+    )
+
     parser = argparse.ArgumentParser(description="Vulnerability Dataset Extractor")
-    parser.add_argument("--sources", required=True, help="Comma-separated sources (cvelistv5, github, csaf_*)")
-    parser.add_argument("--nb-rows", type=int, default=0, help="Max number of vulnerabilities to process (0=all)")
+    parser.add_argument(
+        "--sources",
+        required=True,
+        help="Comma-separated sources (cvelistv5, github, csaf_*)",
+    )
+    parser.add_argument(
+        "--nb-rows",
+        type=int,
+        default=0,
+        help="Max number of vulnerabilities to process (0=all)",
+    )
     args = parser.parse_args()
 
     sources = args.sources.split(",")
     extractor = VulnExtractor(sources, args.nb_rows)
     list(extractor())  # can also write results to a file here if needed
+
 
 if __name__ == "__main__":
     main()

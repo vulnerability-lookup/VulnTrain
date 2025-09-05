@@ -1,5 +1,23 @@
 # Changelog
 
+## Release 2.0.0 (2025-09-05)
+
+### News
+
+- **Dataset generation:** Introduced a new script to build datasets of structured vulnerabilities enriched with CWE identifiers and corresponding patches.
+  Each entry now includes the Git commit message and the full diff (Base64-encoded).
+  [#10](https://github.com/vulnerability-lookup/VulnTrain/pull/10) by @3LS3-1F
+- **Model generation:** Added a new trainer for predicting CWE classifications from vulnerability descriptions and associated patches (commit messages).
+  [#10](https://github.com/vulnerability-lookup/VulnTrain/pull/10) by @3LS3-1F
+
+Related resources shared via Hugging Face: https://huggingface.co/collections/CIRCL/vlai-for-cwe-guessing-68bab22e3d71b513146d13b3
+
+### Changes
+
+- Improved documentation and reorganized modules for better clarity and maintainability.
+- Updated dependencies to their latest stable versions.
+
+
 ## Release 1.5.0 (2025-07-25)
 
 ### News

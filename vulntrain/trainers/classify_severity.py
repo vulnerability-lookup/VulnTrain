@@ -54,7 +54,7 @@ def map_cvss_to_severity(example, score_strategy="first"):
     score_strategy : str, optional
         Strategy to select the CVSS score to use. Options are:
         - "first"  : Use the first non-null score as it appears in the CVE data (original field order).
-        - "latest" : Use the score from the most recent CVSS version available 
+        - "latest" : Use the score from the most recent CVSS version available
                      (v4.0 → v3.1 → v3.0 → v2.0).
         - "mean"   : Compute the arithmetic mean of all available non-null scores.
 
@@ -64,6 +64,7 @@ def map_cvss_to_severity(example, score_strategy="first"):
         The input `example` dictionary with an added "severity_label" field,
         which can be one of: "Critical", "High", "Medium", "Low", or "Unknown".
     """
+
     def to_float(value):
         try:
             return float(value) if value is not None else None
@@ -93,7 +94,9 @@ def map_cvss_to_severity(example, score_strategy="first"):
     elif score_strategy == "mean":
         scores = [to_float(example.get(k)) for k in version_priority]
         filtered_scores = [s for s in scores if s is not None]
-        severity_score = sum(filtered_scores) / len(filtered_scores) if filtered_scores else None
+        severity_score = (
+            sum(filtered_scores) / len(filtered_scores) if filtered_scores else None
+        )
 
     else:
         raise ValueError(f"Unknown score_strategy: {score_strategy}")

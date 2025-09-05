@@ -94,7 +94,6 @@ class VulnExtractor:
             "patch_commit_url": patch_commit_url,  # Ici
         }
 
-
     def extract_ghsa(self, vuln: dict[str, Any]) -> dict[str, Any]:
         cvss_scores = extract_cvss_from_github_advisory(vuln)
 
@@ -205,14 +204,15 @@ class VulnExtractor:
                 count += 1
                 if count == self.nb_rows:
                     return
-                
+
     def extract_patch_commit_url(self, vuln: dict[str, Any]) -> str | None:
         references = vuln.get("containers", {}).get("cna", {}).get("references", [])
         for ref in references:
-            if "patch" in ref.get("tags", []) and ref.get("url", "").startswith("https://github.com"):
+            if "patch" in ref.get("tags", []) and ref.get("url", "").startswith(
+                "https://github.com"
+            ):
                 return ref["url"]
         return None
-
 
 
 def main():

@@ -1,7 +1,7 @@
 import json
 from collections import defaultdict
 
-with open('vulntrain/trainers/vulnerability.circl.lu.json', 'r') as file:
+with open("vulntrain/trainers/vulnerability.circl.lu.json", "r") as file:
     data = json.load(file)
 
 parent_to_children = defaultdict(list)

@@ -89,7 +89,9 @@ vulntrain-train-severity-cnvd-classification --base-model hfl/chinese-macbert-ba
 
 ### Training for CWE classification
 
-
+```bash
+vulntrain-train-cwe-classification --base-model roberta-base --dataset-id CIRCL/vulnerability-cwe-patch --repo-id CIRCL/cwe-parent-vulnerability-classification-roberta-base 
+```
 
 
 ### Training for text generation
