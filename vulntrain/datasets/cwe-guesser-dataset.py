@@ -171,6 +171,9 @@ class VulnExtractor:
                 cwe_id = problem_types[0]["descriptions"][0].get("cweId", "").strip()
                 cwe_desc = problem_types[0]["descriptions"][0].get("description", "").strip()
 
+            if not cwe_id and not cwe_desc:
+                return {}
+
             if cwe_id and (cwe_desc.startswith(cwe_id) or cwe_id in cwe_desc):
                 cwe = cwe_desc
             else:
@@ -196,10 +199,14 @@ class VulnExtractor:
         if not patch_urls:
             return {}
 
+        cwe_ids = vuln.get("database_specific", {}).get("cwe_ids", [])
+        if not cwe_ids:
+            return {}
+
         return {
             "id": vuln.get("id", ""),
             "title": strip_markdown(vuln.get("summary", "")),
-            "cwes": vuln.get("database_specific", {}).get("cwe_ids", []),
+            "cwes": cwe_ids,
             "patch_links": patch_urls,
         }
 
@@ -240,6 +247,9 @@ class VulnExtractor:
             else:
                 cwes.append(f"{cwe_id} - {cwe_name}".strip(" -"))
 
+        if not any(cwes):
+            return {}
+
         return {
             "id": vuln["document"]["tracking"]["id"],
             "title": vuln["document"]["title"],
@@ -247,6 +257,7 @@ class VulnExtractor:
             "patch_links": patch_urls,
             "cwe": cwes
         }
+
 
 
     def __call__(self) -> Generator[dict[str, Any], None, None]:
@@ -285,11 +296,13 @@ class VulnExtractor:
                         dataset = load_dataset("json", data_files="data.jsonl")["train"]
                         dataset.push_to_hub("CIRCL/vulnerability-cwe-patch")
 
-                    if self.nb_rows and count >= self.nb_rows:
-                        return
                 except Exception as e:
                     log("error", f"Error processing vulnerability: {e}")
 
+            if count % 50 !=0 :
+                print ("Final push to Hugging Face with last entries ...")
+                dataset = load_dataset("json", data_files="data.jsonl")["train"]
+                dataset.push_to_hub("CIRCL/vulnerability-cwe-patch")
 
 # Main 
 from datasets import Dataset
@@ -297,17 +310,16 @@ def main():
     if os.path.exists("data.jsonl"):
         os.remove("data.jsonl")
     
-    '''#Reset the dataset on Hugging Face Hub   
+    #Reset the dataset on Hugging Face Hub   
     empty_dataset = Dataset.from_dict({
         "id": [],
         "title": [],
         "description": [],
         "patches": [],
-        "cwe_id": [],
-        "cwe_description": []
+        "cwe": [],
     })
     empty_dataset.push_to_hub("CIRCL/vulnerability-cwe-patch", commit_message="Reset without 'references'")
-'''
+
     
     parser = argparse.ArgumentParser(description="Vulnerability Dataset Extractor")
     parser.add_argument("--sources", required=True, help="Comma-separated sources (cvelistv5, github, csaf_*)")
