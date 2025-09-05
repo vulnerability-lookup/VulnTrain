@@ -1,85 +1,120 @@
 import argparse
-from collections import Counter
 import logging
 import shutil
-from pathlib import Path
 import base64
-
+import torch
 import json
-from pathlib import Path
-
 import numpy as np
-from sklearn.preprocessing import MultiLabelBinarizer
-from datasets import load_dataset
-
-from transformers import (
-    AutoModelForSequenceClassification,
-    AutoTokenizer,
-    Trainer,
-    TrainingArguments,
-    DataCollatorWithPadding,
-)
-from codecarbon import track_emissions
 import evaluate
 import os
+import re
+from collections import Counter
+
+from transformers import AutoModelForSequenceClassification
+from codecarbon import track_emissions
+from sklearn.metrics import f1_score, accuracy_score
+from pathlib import Path
+from transformers import Trainer, TrainingArguments, DataCollatorWithPadding, AutoTokenizer
+from datasets import load_dataset
 
 accuracy = evaluate.load("accuracy")
-
-#weighted F1 score
 f1 = evaluate.load("f1", config_name="macro")
 
-
-# Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def extract_cwe_id(cwe_string):
+    match = re.search(r"CWE-(\d+)", cwe_string)
+    if match:
+        return match.group(1)
+    return None
 
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
-    predictions = np.argmax(logits, axis=-1)
+    predictions = np.argmax(logits, axis=1)
+    return {
+        "accuracy": accuracy_score(labels, predictions),
+        "f1_macro": f1_score(labels, predictions, average="macro", zero_division=0),
+    }
 
-    #print("- Predictions:", predictions[:20])
-    #print("- Labels     :", labels[:20])
+class WeightedTrainer(Trainer):
+    def __init__(self, *args, class_weights=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.class_weights = class_weights
 
-    acc = accuracy.compute(predictions=predictions, references=labels)
-    f1_score = f1.compute(predictions=predictions, references=labels, average="macro")
-    return {**acc, **f1_score}
-
-
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        labels = inputs.get("labels")
+        outputs = model(**inputs)
+        logits = outputs.get("logits")
+        loss_fct = torch.nn.CrossEntropyLoss(weight=self.class_weights.to(logits.device))
+        loss = loss_fct(logits, labels)
+        return (loss, outputs) if return_outputs else loss
 
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
     dataset = load_dataset(dataset_id)
-    if "test" not in dataset:
-        dataset = dataset["train"].train_test_split(test_size=0.1)
+    dataset = dataset["train"].filter(lambda x: x.get("cwe") and len(x["cwe"]) > 0)
+    dataset = dataset.train_test_split(test_size=0.1)
 
-    # Filter out samples without CWE
-    dataset = dataset.filter(lambda x: x.get("cwe") and len(x["cwe"]) > 0)
+    with open("vulntrain/trainers/deep_child_to_ancestor.json") as f:
+        child_to_ancestor = json.load(f)
 
-    # Build list of unique CWE labels from the whole dataset
-    all_cwes = [
-        cwe for split in dataset.values()
-        for row in split["cwe"]
-        for cwe in (row if isinstance(row, list) else [row])
-    ]
+    all_cwes = set(child_to_ancestor.values())
+    unique_cwes = sorted(all_cwes)
 
-    unique_cwes = sorted(set(all_cwes))
-    logger.info(f"Found {len(unique_cwes)} unique CWE labels.")
+    logger.info(f"Targeting {len(unique_cwes)} unique CWE ancestor labels.")
 
     cwe_to_id = {cwe: idx for idx, cwe in enumerate(unique_cwes)}
     id_to_cwe = {idx: cwe for cwe, idx in cwe_to_id.items()}
 
-    # Encode first CWE as label
     def encode_example(example):
-        first_cwe = example["cwe"][0] if isinstance(example["cwe"], list) else example["cwe"]
-        example["label"] = cwe_to_id[first_cwe]
+        cwes = example["cwe"] if isinstance(example["cwe"], list) else [example["cwe"]]
+        for cwe in cwes:
+            cwe_id = extract_cwe_id(cwe)
+            if not cwe_id:
+                continue
+            ancestor = child_to_ancestor.get(cwe_id, cwe_id)
+            if ancestor in cwe_to_id:
+                example["labels"] = cwe_to_id[ancestor]
+                return example
+        example["labels"] = -1
         return example
 
     dataset = dataset.map(encode_example)
+    dataset = dataset.filter(lambda x: x["labels"] != -1)
+
+    print("-------------- Train examples:", len(dataset["train"]))
+    print("-------------- Test examples :", len(dataset["test"]))
+
+    # Compute class weights parce que classes desequilibrees
+    from sklearn.utils.class_weight import compute_class_weight
+
+    all_labels = [example["labels"] for example in dataset["train"]]
+
+    num_classes = len(cwe_to_id)
+    present_classes = np.unique(all_labels)
+
+    present_weights = compute_class_weight(
+        class_weight='balanced',
+        classes=present_classes,
+        y=all_labels
+    )
+
+    full_weights = np.zeros(num_classes, dtype=np.float32)
+
+    # We fill only the present class weights 
+    for cls, weight in zip(present_classes, present_weights):
+        full_weights[cls] = weight
+
+    class_weights = torch.tensor(full_weights, dtype=torch.float)
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
 
-    def extract_commit_text(patch_list):
+    def extract_commit_text(example):
+        patch_list = example.get("patches", [])
+        description = example.get("description", "")
+
+        patch_text = ""
         if isinstance(patch_list, list) and len(patch_list) > 0:
             patch = patch_list[0]
             commit_msg = patch.get("commit_message", "")
@@ -87,64 +122,55 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
             try:
                 decoded_patch = base64.b64decode(patch_text_b64).decode("utf-8")
             except Exception as e:
-                print("❌ Error decoding patch:", e)
+                print(">< Error decoding patch:", e)
                 decoded_patch = ""
-            full_text = f"{commit_msg}\n{decoded_patch}".strip()
-            if not full_text:
-                print("⚠️ Empty text found.")
-            return full_text
-        return ""
+            patch_text = f"{commit_msg}\n{decoded_patch}".strip()
 
+        return f"{description}\n{patch_text}".strip()
+
+    def zip_examples(examples):
+        keys = examples.keys()
+        return [dict(zip(keys, values)) for values in zip(*examples.values())]
 
     def tokenize_function(examples):
-        texts = [extract_commit_text(patch) for patch in examples.get("patches", [])]
-        # Ensure all texts are strings
-        texts = [text if isinstance(text, str) else "" for text in texts]
-        return tokenizer(
-            texts,
-            padding="max_length",
-            truncation=True,
-            max_length=512,
-        )
-
+        texts = [extract_commit_text(example) for example in zip_examples(examples)]
+        return tokenizer(texts, padding="max_length", truncation=True, max_length=512)
 
     tokenized_dataset = dataset.map(tokenize_function, batched=True)
-    tokenized_dataset = tokenized_dataset.rename_column("label", "labels")
 
     model = AutoModelForSequenceClassification.from_pretrained(
         base_model,
-        num_labels=len(cwe_to_id),
-        id2label=id_to_cwe,
-        label2id=cwe_to_id,
+        num_labels=len(cwe_to_id)
     )
 
     training_args = TrainingArguments(
         output_dir=model_save_dir,
         eval_strategy="epoch",
         save_strategy="epoch",
-        learning_rate=3e-5,
-        per_device_train_batch_size=20,
-        per_device_eval_batch_size=20,
-        num_train_epochs=5,
+        learning_rate=1e-5,
+        per_device_train_batch_size=16,
+        per_device_eval_batch_size=16,
+        num_train_epochs=40,
         weight_decay=0.01,
         logging_dir="./logs",
         logging_steps=20,
         load_best_model_at_end=True,
         push_to_hub=True,
         hub_model_id=repo_id,
-        label_smoothing_factor=0.1,
     )
 
-    small_train = tokenized_dataset["train"].select(range(20))  # For testing purposes
-    trainer = Trainer(
+    trainer = WeightedTrainer(
         model=model,
         args=training_args,
-        train_dataset=small_train,
-        eval_dataset=small_train,  # Use the same small dataset for eval
+        train_dataset=tokenized_dataset["train"],
+        eval_dataset=tokenized_dataset["test"],
         tokenizer=tokenizer,
         data_collator=DataCollatorWithPadding(tokenizer),
         compute_metrics=compute_metrics,
+        class_weights=class_weights,
     )
+
+    from transformers import AutoConfig
 
     try:
         trainer.train()
@@ -152,29 +178,30 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         model.save_pretrained(model_save_dir)
         tokenizer.save_pretrained(model_save_dir)
 
+        model.config.id2label = id_to_cwe
+        model.config.label2id = cwe_to_id
+        model.config.num_labels = len(cwe_to_id)
+        model.config.problem_type = "single_label_classification"
 
-    #print(tokenized_dataset["train"][0]["labels"])
-    #print(tokenized_dataset["train"][0])
-
+        model.config.save_pretrained(model_save_dir)
 
     metrics = trainer.evaluate()
     metrics_path = Path(model_save_dir) / "metrics.json"
     with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=4)
 
-    trainer.push_to_hub()
+    trainer.push_to_hub(repo_id)
     tokenizer.push_to_hub(repo_id)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Train a vulnerability classifier using CWE labels.")
     parser.add_argument(
-    "--base-model",
-    default="gpt2-base" ,
-
-
-    help="Base transformer model to use (e.g., roberta-base, codebert-base, etc.).",
-)
+        "--base-model",
+        nargs="+",  # to make a list of models
+        required=True,
+        help="Un ou plusieurs modèles à tester (ex: roberta-base distilbert-base-uncased)",
+    )
 
     parser.add_argument(
         "--dataset-id",
@@ -203,10 +230,23 @@ def main():
     logger.info(f"Saving model to: {args.model_save_dir}")
     logger.info("Starting the training process…")
 
-    train(args.base_model, args.dataset_id, args.repo_id, args.model_save_dir)
+    for base_model in args.base_model:
+        model_name_sanitized = base_model.replace("/", "-")
+        repo_id = f"{args.repo_id}-{model_name_sanitized}"
+        save_dir = os.path.join(args.model_save_dir, model_name_sanitized)
 
-    from collections import Counter
-    print(Counter([ex["labels"] for ex in small_train]))
+        logger.info("="*80)
+        logger.info(f"----------- Training with base model: {base_model}")
+        logger.info(f"-------------- Model will be saved to: {save_dir}")
+        logger.info(f"----------------- Will be pushed to Hub at: {repo_id}")
+        logger.info("="*80)
+
+        # Clean save dir if it exists
+        dir_path = Path(save_dir)
+        if dir_path.exists() and dir_path.is_dir():
+            shutil.rmtree(dir_path)
+
+        train(base_model, args.dataset_id, repo_id, save_dir)
 
 
 if __name__ == "__main__":
