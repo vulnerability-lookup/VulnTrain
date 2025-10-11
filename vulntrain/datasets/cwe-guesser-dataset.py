@@ -7,7 +7,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Generator, Optional
 
-import requests
+import requests  # type: ignore[import-untyped]
 from datasets import Dataset, load_dataset
 
 from vulntrain.config import GITHUB_TOKEN
@@ -374,9 +374,7 @@ def main():
             "cwe": [],
         }
     )
-    empty_dataset.push_to_hub(
-        args.repo_id, commit_message="Reset without 'references'"
-    )
+    empty_dataset.push_to_hub(args.repo_id, commit_message="Reset without 'references'")
 
     sources = args.sources.split(",")
     extractor = VulnExtractor(sources, args.repo_id, args.nb_rows)

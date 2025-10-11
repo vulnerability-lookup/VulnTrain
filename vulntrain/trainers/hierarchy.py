@@ -1,8 +1,5 @@
-from collections import defaultdict
 import json
-import os
-from typing import Dict, List
-
+from collections import defaultdict
 
 # Load your JSON data from the file
 with open("vulntrain/trainers/parent_to_children_mapping.json", "r") as f:
@@ -32,16 +29,12 @@ def build_hierarchy_levels(data):
 hierarchy_levels = build_hierarchy_levels(data)
 
 # Organize output by levels
-from collections import defaultdict
-
 output_with_levels = defaultdict(dict)
 for key, level in hierarchy_levels.items():
     output_with_levels[f"Level {level}"][key] = data.get(key, [])
 
 # Convert back to a regular dict and print
 output_with_levels = dict(output_with_levels)
-
-import json
 
 # put the result in a json file
 with open("vulntrain/trainers/cwe_hierarchy.json", "w") as f:

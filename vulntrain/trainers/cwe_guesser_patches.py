@@ -8,7 +8,6 @@ import numpy as np
 import evaluate
 import os
 import re
-from collections import Counter
 
 from transformers import AutoModelForSequenceClassification
 from codecarbon import track_emissions
