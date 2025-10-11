@@ -66,7 +66,7 @@ vulntrain-dataset-generation --sources cnvd --repo-id=CIRCL/Vulnerability-CNVD
 ### Associating Git Fixes with Common Weakness Enumerations (CWEs)
 
 ```bash
-python vulntrain/datasets/cwe-guesser-dataset.py --sources cvelistv5,github,pysec,csaf_redhat
+python vulntrain/datasets/cwe-guesser-dataset.py --sources cvelistv5,github,pysec,csaf_redhat --repo-id=CIRCL/vulnerability-cwe-patch
 ```
 
 

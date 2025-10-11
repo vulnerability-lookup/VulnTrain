@@ -5,11 +5,10 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 from typing import Any, Dict, Generator, Optional
 
 import requests
-from datasets import load_dataset
+from datasets import Dataset, load_dataset
 
 from vulntrain.config import GITHUB_TOKEN
 from vulntrain.utils import (
@@ -42,12 +41,11 @@ DEFAULT_TIMEOUT = 10
 MAX_WORKERS = 16
 MAX_RETRIES = 3
 
-# VulnExtractor
-
 
 class VulnExtractor:
-    def __init__(self, sources: list[str], nb_rows: int):
+    def __init__(self, sources: list[str], repo_id: str, nb_rows: int):
         self.sources = sources
+        self.repo_id = repo_id
         self.nb_rows = nb_rows
         self.executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
@@ -331,7 +329,7 @@ class VulnExtractor:
                     if count % 50 == 0:
                         print(f"Pushing to Hugging Face Hub at count={count}...")
                         dataset = load_dataset("json", data_files="data.jsonl")["train"]
-                        dataset.push_to_hub("cedricbonhomme/vulnerability-cwe-patch")
+                        dataset.push_to_hub(self.repo_id)
 
                 except Exception as e:
                     log("error", f"Error processing vulnerability: {e}")
@@ -339,14 +337,30 @@ class VulnExtractor:
             if count % 50 != 0:
                 print("Final push to Hugging Face with last entries ...")
                 dataset = load_dataset("json", data_files="data.jsonl")["train"]
-                dataset.push_to_hub("cedricbonhomme/vulnerability-cwe-patch")
-
-
-# Main
-from datasets import Dataset
+                dataset.push_to_hub(self.repo_id)
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Vulnerability Dataset Extractor")
+    parser.add_argument(
+        "--sources",
+        required=True,
+        help="Comma-separated sources (cvelistv5, github, csaf_*)",
+    )
+    parser.add_argument(
+        "--repo-id",
+        dest="repo_id",
+        default="CIRCL/vulnerability-cwe-patch",
+        help="The name of the repository you want to push your object to. It should contain your organization name when pushing to a given organization.",
+    )
+    parser.add_argument(
+        "--nb-rows",
+        type=int,
+        default=0,
+        help="Max number of vulnerabilities to process (0=all)",
+    )
+    args = parser.parse_args()
+
     if os.path.exists("data.jsonl"):
         os.remove("data.jsonl")
 
@@ -361,25 +375,11 @@ def main():
         }
     )
     empty_dataset.push_to_hub(
-        "cedricbonhomme/vulnerability-cwe-patch", commit_message="Reset without 'references'"
+        args.repo_id, commit_message="Reset without 'references'"
     )
-
-    parser = argparse.ArgumentParser(description="Vulnerability Dataset Extractor")
-    parser.add_argument(
-        "--sources",
-        required=True,
-        help="Comma-separated sources (cvelistv5, github, csaf_*)",
-    )
-    parser.add_argument(
-        "--nb-rows",
-        type=int,
-        default=0,
-        help="Max number of vulnerabilities to process (0=all)",
-    )
-    args = parser.parse_args()
 
     sources = args.sources.split(",")
-    extractor = VulnExtractor(sources, args.nb_rows)
+    extractor = VulnExtractor(sources, args.repo_id, args.nb_rows)
     list(extractor())  # can also write results to a file here if needed
 
 
