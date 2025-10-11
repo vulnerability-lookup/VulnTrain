@@ -53,9 +53,9 @@ class VulnExtractor:
 
     def get_all(self, source: str) -> Generator[dict[str, Any], None, None]:
         page = 1
-        per_page = 1000
+        per_page = 100
         while True:
-            url = f"https://vulnerability.circl.lu/api/vulnerability/last/{source}/{per_page}?page={page}"
+            url = f"https://vulnerability.circl.lu/api/vulnerability/?source={source}&per_page={per_page}&page={page}"
             retries = 0
             while retries < MAX_RETRIES:
                 try:
@@ -116,12 +116,18 @@ class VulnExtractor:
             return self._fetch_patch_generic(url, "github", HEADERS)
         elif "gitlab.com" in url and "/-/commit/" in url:
             return self._fetch_patch_generic(url, "gitlab")
+        elif "bitbucket.com" in url and "commits" in url:
+            return self._fetch_patch_generic(url, "bitbucket")
         return None
 
     def _fetch_patch_generic(
         self, url: str, platform: str, headers: dict[str, str] = {}
     ) -> Optional[dict[str, str]]:
-        patch_url = url if url.endswith(".patch") else url + ".patch"
+        if platform == "bitbucket":
+            patch_url = url if url.endswith("/raw") else url + "/raw"
+        else:
+            patch_url = url if url.endswith(".patch") else url + ".patch"
+
         try:
             response = requests.get(patch_url, headers=headers, timeout=DEFAULT_TIMEOUT)
             response.raise_for_status()
@@ -182,7 +188,7 @@ class VulnExtractor:
             patch_urls = [
                 ref.get("url", "")
                 for ref in vuln["containers"]["cna"].get("references", [])
-                if "tags" in ref and "patch" in ref["tags"]
+                # if "tags" in ref and "patch" in ref["tags"]
             ]
             patch_urls = self.filter_alive_links(patch_urls)
             patches = self._parallel_fetch_patches(patch_urls)
@@ -223,7 +229,7 @@ class VulnExtractor:
         patch_urls = [
             ref.get("url", "")
             for ref in refs
-            if "type" in ref and "patch" in ref["type"].lower()
+            # if "type" in ref and "patch" in ref["type"].lower()
         ]
         patch_urls = self.filter_alive_links(patch_urls)
         if not patch_urls:
@@ -325,7 +331,7 @@ class VulnExtractor:
                     if count % 50 == 0:
                         print(f"Pushing to Hugging Face Hub at count={count}...")
                         dataset = load_dataset("json", data_files="data.jsonl")["train"]
-                        dataset.push_to_hub("CIRCL/vulnerability-cwe-patch")
+                        dataset.push_to_hub("cedricbonhomme/vulnerability-cwe-patch")
 
                 except Exception as e:
                     log("error", f"Error processing vulnerability: {e}")
@@ -333,7 +339,7 @@ class VulnExtractor:
             if count % 50 != 0:
                 print("Final push to Hugging Face with last entries ...")
                 dataset = load_dataset("json", data_files="data.jsonl")["train"]
-                dataset.push_to_hub("CIRCL/vulnerability-cwe-patch")
+                dataset.push_to_hub("cedricbonhomme/vulnerability-cwe-patch")
 
 
 # Main
@@ -355,7 +361,7 @@ def main():
         }
     )
     empty_dataset.push_to_hub(
-        "CIRCL/vulnerability-cwe-patch", commit_message="Reset without 'references'"
+        "cedricbonhomme/vulnerability-cwe-patch", commit_message="Reset without 'references'"
     )
 
     parser = argparse.ArgumentParser(description="Vulnerability Dataset Extractor")
