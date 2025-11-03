@@ -3,6 +3,7 @@ import asyncio
 import base64
 # import json
 import logging
+import time
 # import os
 from typing import Optional
 
@@ -128,8 +129,25 @@ class VulnExtractor:
             try:
                 async with self.semaphore:
                     async with session.get(patch_url, headers=patch_headers, timeout=self.timeout) as resp:
-                        if resp.status != 200:
+                        # --- Log GitHub rate limits ---
+                        if "x-ratelimit-remaining" in resp.headers:
+                            remaining = resp.headers.get("x-ratelimit-remaining")
+                            limit = resp.headers.get("x-ratelimit-limit")
+                            reset = resp.headers.get("x-ratelimit-reset")
+                            reset_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(int(reset)))
+                            log("info", f"GitHub RateLimit: {remaining}/{limit}, reset at {reset_time}", display=True)
+
+                        if resp.status == 403 and "x-ratelimit-remaining" in resp.headers and resp.headers["x-ratelimit-remaining"] == "0":
+                            reset_sec = int(resp.headers.get("x-ratelimit-reset", time.time() + 60)) - int(time.time())
+                            log("warning", f"Rate limit reached. Sleeping {reset_sec} seconds.", display=True)
+                            await asyncio.sleep(reset_sec + 1)
                             continue
+
+                        if resp.status != 200:
+                            log("warning", f"Failed fetch [{resp.status}] for {patch_url} (attempt {attempt+1})", display=True)
+                            await asyncio.sleep(2 ** attempt)
+                            continue
+
                         patch_text = (await resp.text()).strip()
                         if not patch_text:
                             log("warning", f"Empty patch content: {patch_url}", display=True)
@@ -148,17 +166,21 @@ class VulnExtractor:
                             if line.startswith("diff --git"):
                                 break
                             if not commit_msg_lines and line.strip() and not line.startswith("From "):
-                                # fallback: first non-empty line before diff
                                 commit_msg_lines.append(line.strip())
                             elif commit_msg_lines and line.strip() and not line.startswith("---"):
                                 commit_msg_lines.append(line.strip())
                         commit_message = " ".join(commit_msg_lines).strip()
 
-                        log("info", f"Successfully fetched patch: {url} | Commit message: {commit_message[:60]}...", display=True)
+                        log("info", f"Successfully fetched patch: {url} | Commit message: {commit_message[:60]}...")
+
+                        # Small delay to reduce request aggression
+                        await asyncio.sleep(0.1)
                         return {"url": url, "patch_text_b64": patch_text_b64, "commit_message": commit_message}
+
             except (asyncio.TimeoutError, aiohttp.ClientError) as e:
                 log("warning", f"[Retry {attempt+1}/{MAX_RETRIES}] {patch_url} failed: {e}", display=True)
                 await asyncio.sleep(2 ** attempt)
+
         log("error", f"Failed to fetch patch after {MAX_RETRIES} attempts: {patch_url}", display=True)
         return None
 
