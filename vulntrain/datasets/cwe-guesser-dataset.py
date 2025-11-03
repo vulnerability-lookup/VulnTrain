@@ -59,7 +59,7 @@ def log(level: str, message: str, display: bool = False):
 
 HEADERS = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/json"}
 DEFAULT_TIMEOUT = 10
-MAX_CONCURRENT_REQUESTS = 64
+MAX_CONCURRENT_REQUESTS = 12
 MAX_RETRIES = 3
 HUGGINGFACE_BATCH = 200  # push every 200 entries
 
@@ -171,7 +171,7 @@ class VulnExtractor:
                                 commit_msg_lines.append(line.strip())
                         commit_message = " ".join(commit_msg_lines).strip()
 
-                        log("info", f"Successfully fetched patch: {url} | Commit message: {commit_message[:60]}...")
+                        log("info", f"Successfully fetched patch: {url} | Commit message: {commit_message[:60]}...", display=True)
 
                         # Small delay to reduce request aggression
                         await asyncio.sleep(0.1)
