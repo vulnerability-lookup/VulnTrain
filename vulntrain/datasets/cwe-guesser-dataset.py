@@ -6,7 +6,6 @@ import base64
 import logging
 import time
 from typing import Optional
-from urllib.parse import urlsplit, urlunsplit
 
 import aiohttp
 from aiohttp import ClientSession, ClientTimeout
@@ -62,7 +61,11 @@ def normalize_patch_url(url: str) -> str:
     # --- GitHub ---
     if "github.com" in url and "/commit/" in url:
         before, after = url.split("/commit/", 1)
-        sha = after.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+        sha = (
+            after.split("/", 1)[0]  # remove trailing path
+            .split("?", 1)[0]  # remove query
+            .split("#", 1)[0]  # remove fragment
+        )
         return f"{before}/commit/{sha}.patch"
 
     # --- GitLab ---
