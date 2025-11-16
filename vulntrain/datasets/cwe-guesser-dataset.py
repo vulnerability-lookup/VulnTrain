@@ -6,6 +6,7 @@ import base64
 import logging
 import time
 from typing import Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import aiohttp
 from aiohttp import ClientSession, ClientTimeout
@@ -58,12 +59,20 @@ def normalize_patch_url(url: str) -> str:
     """
     Normalize commit/patch URLs to match how they are stored in patch_map.
     """
+    # --- GitHub ---
     if "github.com" in url and "/commit/" in url:
-        return url.split(".patch")[0]
+        before, after = url.split("/commit/", 1)
+        sha = after.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+        return f"{before}/commit/{sha}.patch"
+
+    # --- GitLab ---
     if "gitlab.com" in url and "/-/commit/" in url:
         return url.split(".patch")[0]
+
+    # --- Bitbucket ---
     if "bitbucket.org" in url and "commits" in url:
         return url.rstrip("/raw")
+
     return url
 
 
