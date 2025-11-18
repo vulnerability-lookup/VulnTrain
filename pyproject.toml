@@ -5,7 +5,7 @@ build-backend = "poetry.core.masonry.api"
 
 [project]
 name = "VulnTrain"
-version = "2.0.0"
+version = "2.1.0"
 description = "Generate datasets amd models based on vulnerabilities data from Vulnerability-Lookup."
 authors = [
     {name = "Cédric Bonhomme", email = "cedric.bonhomme@circl.lu"},

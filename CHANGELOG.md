@@ -1,5 +1,31 @@
 # Changelog
 
+## Release 2.1.0 (2025-11-18)
+
+### What's New
+
+#### Datasets
+
+- **CWE/Patch dataset improvements**: Considered more fields to find vulnerability patches. Asynchronous requests to GitHub are now less aggressive.
+- **CWE Guesser dataset**:
+  - Now uses the new vulnerability endpoint of Vulnerability-Lookup.
+  - References in security advisories without the `patch` tag are also considered.
+  - Repo ID is now a configurable parameter in the dataset generation script.
+- **URL handling improvements**:
+  - `normalize_patch_url` function improved for better patch URL processing.
+  - URLs with fragments are now properly handled.
+- **Concurrency**: Reduced the number of default concurrent requests to 12 to avoid overloading external services.
+
+#### Dependencies
+
+- Updated Python dependencies, including **PyTorch bump from 2.7.1 to 2.8.0**.
+- General dependency updates across the project.
+
+#### Miscellaneous
+
+- Minor code improvements and style updates (reformatted with `black`).
+
+
 ## Release 2.0.0 (2025-09-05)
 
 ### News
