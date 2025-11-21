@@ -243,7 +243,8 @@ def main():
 
     for base_model in args.base_model:
         model_name_sanitized = base_model.replace("/", "-")
-        repo_id = f"{args.repo_id}-{model_name_sanitized}"
+        # repo_id = f"{args.repo_id}-{model_name_sanitized}"
+        repo_id = f"{args.repo_id}"
         save_dir = os.path.join(args.model_save_dir, model_name_sanitized)
 
         logger.info("=" * 80)
