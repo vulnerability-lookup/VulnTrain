@@ -36,13 +36,13 @@ pip3 install --pre torch torchvision torchaudio --index-url https://download.pyt
 Ensure that the ``huggingface_hub`` package is installed:
 
 ```bash
-pip install huggingface_hub
+pipx install huggingface_hub
 ```
 
 Then log in to Hugging Face:
 
 ```bash
-huggingface-cli login
+hf auth login
 ```
 
 Then ensure that the kvrocks database of Vulnerability-Lookup is running.
