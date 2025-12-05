@@ -100,28 +100,28 @@ For now we are using GPT-2 (AutoModelForCausalLM) or distilbert-base-uncased (Au
 The goal is to generate text.
 
 ```bash
-$ vulntrain-train-description-generation --base-model gpt2 --dataset-id CIRCL/vulnerability --repo-id CIRCL/vulnerability-description-generation-gpt2
+$ vulntrain-train-description-generation --base-model gpt2-xl --dataset-id CIRCL/vulnerability-scores --repo-id CIRCL/vulnerability-description-generation-gpt2-xl
+Dataset ID: CIRCL/vulnerability-scores
+Destination Hugging Face repository ID: CIRCL/vulnerability-description-generation-gpt2-xl
+Model will be saved to: results
+Starting the training process…
+[codecarbon WARNING @ 08:17:38] Multiple instances of codecarbon are allowed to run at the same time.
+[codecarbon INFO @ 08:17:38] [setup] RAM Tracking...
+[codecarbon INFO @ 08:17:38] [setup] CPU Tracking...
+[codecarbon INFO @ 08:17:40] CPU Model on constant consumption mode: Intel(R) Xeon(R) Platinum 8480+
+[codecarbon INFO @ 08:17:40] [setup] GPU Tracking...
+[codecarbon INFO @ 08:17:40] Tracking Nvidia GPU via pynvml
+[codecarbon INFO @ 08:17:40] >>> Tracker's metadata:
+[codecarbon INFO @ 08:17:40]   Platform system: Linux-6.8.0-88-generic-x86_64-with-glibc2.39
+[codecarbon INFO @ 08:17:40]   Python version: 3.12.3
+[codecarbon INFO @ 08:17:40]   CodeCarbon version: 2.8.4
+[codecarbon INFO @ 08:17:40]   Available RAM : 2015.335 GB
+[codecarbon INFO @ 08:17:40]   CPU count: 224
+[codecarbon INFO @ 08:17:40]   CPU model: Intel(R) Xeon(R) Platinum 8480+
+[codecarbon INFO @ 08:17:40]   GPU count: 2
+[codecarbon INFO @ 08:17:40]   GPU model: 2 x NVIDIA H100 NVL
+[codecarbon INFO @ 08:17:40] Emissions data (if any) will be saved to file /home/cedric/VulnTrain/emissions.csv
 Using CUDA (Nvidia GPU).
-[codecarbon WARNING @ 13:28:13] Multiple instances of codecarbon are allowed to run at the same time.
-[codecarbon INFO @ 13:28:13] [setup] RAM Tracking...
-[codecarbon INFO @ 13:28:13] [setup] CPU Tracking...
-[codecarbon WARNING @ 13:28:13] No CPU tracking mode found. Falling back on CPU constant mode. 
- Linux OS detected: Please ensure RAPL files exist at \sys\class\powercap\intel-rapl to measure CPU
-
-[codecarbon WARNING @ 13:28:14] We saw that you have a AMD EPYC 9124 16-Core Processor but we don't know it. Please contact us.
-[codecarbon INFO @ 13:28:14] CPU Model on constant consumption mode: AMD EPYC 9124 16-Core Processor
-[codecarbon INFO @ 13:28:14] [setup] GPU Tracking...
-[codecarbon INFO @ 13:28:14] Tracking Nvidia GPU via pynvml
-[codecarbon INFO @ 13:28:14] >>> Tracker's metadata:
-[codecarbon INFO @ 13:28:14]   Platform system: Linux-6.8.0-48-generic-x86_64-with-glibc2.39
-[codecarbon INFO @ 13:28:14]   Python version: 3.12.3
-[codecarbon INFO @ 13:28:14]   CodeCarbon version: 2.8.3
-[codecarbon INFO @ 13:28:14]   Available RAM : 251.586 GB
-[codecarbon INFO @ 13:28:14]   CPU count: 64
-[codecarbon INFO @ 13:28:14]   CPU model: AMD EPYC 9124 16-Core Processor
-[codecarbon INFO @ 13:28:14]   GPU count: 2
-[codecarbon INFO @ 13:28:14]   GPU model: 2 x NVIDIA L40S
-[codecarbon INFO @ 13:28:18] Saving emissions data to file /home/cedric/VulnTrain/emissions.csv                                    | 1/2700 [00:07<5:45:36,  7.68s/it]
 ...
 ...
 ...
