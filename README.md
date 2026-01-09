@@ -62,8 +62,8 @@ Bonhomme, C., & Dulaunoy, A. (2025). VLAI: A RoBERTa-Based Model for Automated V
 [GNU General Public License version 3](https://www.gnu.org/licenses/gpl-3.0.html)
 
 ~~~
-Copyright (c) 2025 Computer Incident Response Center Luxembourg (CIRCL)
-Copyright (C) 2025 Cédric Bonhomme - https://github.com/cedricbonhomme
+Copyright (c) 2025-2026 Computer Incident Response Center Luxembourg (CIRCL)
+Copyright (C) 2025-2026 Cédric Bonhomme - https://github.com/cedricbonhomme
 Copyright (C) 2025 Léa Ulusan - https://github.com/3LS3-1F
 ~~~
 
