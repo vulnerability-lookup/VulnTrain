@@ -19,12 +19,12 @@ dynamic = ["classifiers"]
 requires-python = ">=3.11,<3.15"
 dependencies = [
     "nltk (>=3.9.2)",
-    "pandas (>=2.3.3)",
-    "datasets (>=4.4.2)",
+    "pandas (>=3.0.0,<4.0.0)",
+    "datasets (>=4.5.0,<5.0.0)",
     "valkey (>=6.1.1)",
-    "torch (>=2.9.1)",
-    "transformers[torch] (>=4.57.0,<5.0.0)",
-    "evaluate (>=0.4.3,<0.5.0)",
+    "torch (>=2.10.0,<3.0.0)",
+    "transformers[torch] (>=5.0.0,<6.0.0)",
+    "evaluate (>=0.4.6,<0.5.0)",
     "codecarbon (>=3.2.1,<4.0.0)",
     "scikit-learn (>=1.8.0,<2.0.0)",
     "markdown-it-py (>=3.0.0,<4.0.0)",
