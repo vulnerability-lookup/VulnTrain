@@ -11,6 +11,7 @@ from datasets import DatasetDict, load_dataset
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
+    DataCollatorWithPadding,
     Trainer,
     TrainingArguments,
 )
@@ -91,6 +92,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     # logger.info(dataset["train"][0])
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
+    data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
     def tokenize_function(examples):
         tokenized = tokenizer(
@@ -148,7 +150,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         args=training_args,
         train_dataset=tokenized_datasets["train"],
         eval_dataset=tokenized_datasets["test"],
-        tokenizer=tokenizer,
+        data_collator=data_collator,
         compute_metrics=compute_metrics,
     )
 
