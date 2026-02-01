@@ -1,25 +1,25 @@
 import argparse
-import logging
-import shutil
 import base64
-import torch
 import json
-import numpy as np
-import evaluate
+import logging
 import os
 import re
-
-from transformers import AutoModelForSequenceClassification
-from codecarbon import track_emissions
-from sklearn.metrics import f1_score, accuracy_score
+import shutil
 from pathlib import Path
+
+import evaluate
+import numpy as np
+import torch
+from codecarbon import track_emissions
+from datasets import load_dataset
+from sklearn.metrics import accuracy_score, f1_score
 from transformers import (
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
+    DataCollatorWithPadding,
     Trainer,
     TrainingArguments,
-    DataCollatorWithPadding,
-    AutoTokenizer,
 )
-from datasets import load_dataset
 
 accuracy = evaluate.load("accuracy")
 f1 = evaluate.load("f1", config_name="macro")
@@ -178,8 +178,6 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         compute_metrics=compute_metrics,
         class_weights=class_weights,
     )
-
-    from transformers import AutoConfig
 
     try:
         trainer.train()
