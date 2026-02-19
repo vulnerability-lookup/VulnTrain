@@ -143,7 +143,7 @@ Key points:
     contention on shared filesystems.
 
 
-A configuration using ``torchrun``:
+### A configuration using ``torchrun``
 
 ```bash
 #!/bin/bash
