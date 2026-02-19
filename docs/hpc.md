@@ -131,7 +131,7 @@ export CODECARBON_OFF=1
 $HOME/conda_envs/vulntrain/bin/vulntrain-train-severity-classification \
         --base-model roberta-base \
         --dataset-id CIRCL/vulnerability-scores \
-        --repo-id cedricbonhomme/vulnerability-severity-classification-roberta-base
+        --repo-id <-hugging-face-username->/vulnerability-severity-classification-roberta-base
 ' 
 ```
 
@@ -186,7 +186,7 @@ torchrun --nproc_per_node=$SLURM_NTASKS_PER_NODE \
          $HOME/conda_envs/vulntrain/bin/vulntrain-train-severity-classification \
             --base-model roberta-base \
             --dataset-id CIRCL/vulnerability-scores \
-            --repo-id cedricbonhomme/vulnerability-severity-classification-roberta-base \
+            --repo-id <-hugging-face-username->/vulnerability-severity-classification-roberta-base \
             --model-save-dir $HOME/models/vulntrain_roberta \
             --no-codecarbon \
             --no-push \
