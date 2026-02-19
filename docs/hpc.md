@@ -1,7 +1,7 @@
 
 # Running VulnTrain on an HPC cluster
 
-This page shows a reference configuration for running VulnTrain on a EuroHPC-style
+This page shows a reference configuration for running VulnTrain on a [EuroHPC-style](https://www.eurohpc-ju.europa.eu)
 GPU cluster managed by SLURM. Treat this as a template and adapt the account,
 partition, and resource requests to match your local system.
 
