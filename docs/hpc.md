@@ -126,7 +126,6 @@ srun --ntasks=$SLURM_NTASKS \
      bash -c '
 export RANK=$SLURM_PROCID
 export LOCAL_RANK=$SLURM_LOCALID
-export CUDA_VISIBLE_DEVICES=0
 export CODECARBON_OFF=1
 
 $HOME/conda_envs/vulntrain/bin/vulntrain-train-severity-classification \
