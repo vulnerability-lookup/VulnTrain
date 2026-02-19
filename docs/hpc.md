@@ -64,9 +64,7 @@ counts to match your project and cluster policies.
 ```bash
 #!/bin/bash
 #SBATCH --job-name=vulntrain
-#SBATCH --output=vulntrain-%j.out
-#SBATCH --error=vulntrain-%j.err
-#SBATCH --account=p201224
+#SBATCH --account=<-your-account-id>
 #SBATCH --partition=gpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=4          # one task per GPU
@@ -74,6 +72,8 @@ counts to match your project and cluster policies.
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=06:00:00
+#SBATCH --output=logs/vulntrain_%j.out
+#SBATCH --error=logs/vulntrain_%j.err
 #SBATCH --qos=default
 
 # -------------------------------
@@ -141,6 +141,58 @@ Key points:
 - `WORLD_SIZE` is set from `SLURM_NTASKS` for distributed training.
 - Separate HuggingFace cache directories are used per task to avoid I/O
     contention on shared filesystems.
+
+
+A configuration using ``torchrun``:
+
+```bash
+#!/bin/bash
+#SBATCH --job-name=vulntrain
+#SBATCH --account=<-your-account-id>
+#SBATCH --partition=gpu
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=4    # Number of GPUs to use
+#SBATCH --gpus-per-node=4
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=06:00:00
+#SBATCH --output=logs/vulntrain_%j.out
+#SBATCH --error=logs/vulntrain_%j.err
+#SBATCH --qos=default
+
+# Load conda
+source $HOME/miniconda3/etc/profile.d/conda.sh
+conda activate $HOME/conda_envs/vulntrain
+
+# Ensure each rank has its own Hugging Face cache to avoid race conditions
+#export HF_HOME=${SLURM_TMPDIR:-$HOME}/hf_cache_$SLURM_PROCID
+#export TRANSFORMERS_CACHE=$HF_HOME/transformers
+#export DATASETS_CACHE=$HF_HOME/datasets
+#mkdir -p $HF_HOME
+mkdir -p results
+
+# NCCL debug and settings (optional but helps with hangs)
+export NCCL_DEBUG=INFO
+export NCCL_IB_DISABLE=1
+export NCCL_P2P_LEVEL=NVL
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+
+# Set CUDA devices visible (optional, ensures each process sees its GPU)
+export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $(($SLURM_NTASKS_PER_NODE-1)))
+
+# Launch training using torchrun
+torchrun --nproc_per_node=$SLURM_NTASKS_PER_NODE \
+         --master_port=29500 \
+         $HOME/conda_envs/vulntrain/bin/vulntrain-train-severity-classification \
+            --base-model roberta-base \
+            --dataset-id CIRCL/vulnerability-scores \
+            --repo-id cedricbonhomme/vulnerability-severity-classification-roberta-base \
+            --model-save-dir $HOME/models/vulntrain_roberta \
+            --no-codecarbon \
+            --no-push \
+            --no-cache
+```
+
 
 ## 4. Submit and monitor the job
 
