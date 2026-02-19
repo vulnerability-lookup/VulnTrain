@@ -1,5 +1,17 @@
 # Changelog
 
+## Release 2.2.0 (2026-02-19)
+
+### What's New
+
+#### Training
+
+- **New CLI options for severity classification trainer** (`classify_severity.py`):
+  - `--no-codecarbon`: Disable CodeCarbon emissions tracking.
+  - `--no-push`: Disable pushing the model and tokenizer to Hugging Face Hub.
+  - `--no-cache`: Disable cache for the model during training.
+
+
 ## Release 2.1.0 (2025-11-18)
 
 ### What's New
