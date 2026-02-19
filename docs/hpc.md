@@ -13,7 +13,7 @@ The workflow is:
 
 ## 1. Shared Conda environment
 
-Run the following once on a login node to create a reusable environment for
+Run the following once on a **login node** to create a reusable environment for
 VulnTrain. If your site provides a module for Conda or Miniconda, make sure it
 is loaded first.
 
@@ -35,7 +35,7 @@ pip install vulntrain datasets transformers accelerate
 ```
 
 This creates an environment at `$HOME/conda_envs/vulntrain` that can be
-activated from both login and compute nodes.
+activated from both login and **compute nodes**.
 
 ## 2. Test the environment on the login node
 
