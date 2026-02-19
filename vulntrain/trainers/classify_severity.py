@@ -117,8 +117,14 @@ def map_cvss_to_severity(example, score_strategy="first"):
     return example
 
 
-@track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
-def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
+def train(
+    base_model,
+    dataset_id,
+    repo_id,
+    model_save_dir="./vulnerability-classify",
+    push_to_hub=True,
+    use_cache=False,
+):
     # Load dataset from Hugging Face
     dataset = load_dataset(dataset_id)
 
@@ -176,7 +182,8 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         logging_steps=10,
         save_total_limit=2,
         load_best_model_at_end=True,
-        push_to_hub=True,
+        use_cache=use_cache,
+        push_to_hub=push_to_hub,
         hub_model_id=repo_id,
         # remove_unused_columns=False,
     )
@@ -198,8 +205,9 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         model.save_pretrained(model_save_dir)
         tokenizer.save_pretrained(model_save_dir)
 
-    trainer.push_to_hub()
-    tokenizer.push_to_hub(repo_id)
+    if push_to_hub:
+        trainer.push_to_hub()
+        tokenizer.push_to_hub(repo_id)
 
 
 def main():
@@ -231,6 +239,27 @@ def main():
         default="results",
         help="The path to a directory where the tokenizer and the model will be saved.",
     )
+    parser.add_argument(
+        "--no-codecarbon",
+        dest="no_codecarbon",
+        action="store_true",
+        default=False,
+        help="Disable CodeCarbon emissions tracking.",
+    )
+    parser.add_argument(
+        "--no-push",
+        dest="no_push",
+        action="store_true",
+        default=False,
+        help="Disable pushing the model and tokenizer to Hugging Face Hub.",
+    )
+    parser.add_argument(
+        "--no-cache",
+        dest="no_cache",
+        action="store_true",
+        default=False,
+        help="Disable cache for the model during training.",
+    )
 
     args = parser.parse_args()
 
@@ -244,7 +273,20 @@ def main():
     logger.info(f"Saving model to: {args.model_save_dir}")
     logger.info("Starting the training process…")
 
-    train(args.base_model, args.dataset_id, args.repo_id, args.model_save_dir)
+    train_fn = train
+    if not args.no_codecarbon:
+        train_fn = track_emissions(project_name="VulnTrain", allow_multiple_runs=True)(
+            train
+        )
+
+    train_fn(
+        args.base_model,
+        args.dataset_id,
+        args.repo_id,
+        args.model_save_dir,
+        push_to_hub=not args.no_push,
+        use_cache=not args.no_cache,
+    )
 
 
 if __name__ == "__main__":
