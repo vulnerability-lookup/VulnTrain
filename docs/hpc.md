@@ -155,7 +155,7 @@ Key points:
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
-#SBATCH --time=12:00:00
+#SBATCH --time=10:00:00
 #SBATCH --output=logs/vulntrain_%j.out
 #SBATCH --error=logs/vulntrain_%j.err
 #SBATCH --qos=default
