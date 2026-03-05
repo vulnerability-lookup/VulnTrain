@@ -165,11 +165,22 @@ set -e
 source $HOME/miniconda3/etc/profile.d/conda.sh
 conda activate $HOME/conda_envs/vulntrain
 
-MODEL_SAVE_DIR=$HOME/models/vulntrain_roberta
+# --------------------------
+# Parameters for the trainer
+# --------------------------
+BASE_MODEL=roberta-base
+DATASET_ID=CIRCL/vulnerability-scores
+RESULT_REPO_ID=CIRCL/vulnerability-severity-classification-roberta-base
+RESULT_SAVE_DIR=$HOME/models/vulntrain_roberta
 
+
+# --------------------------
+# NCCL configuration
+# --------------------------
 export NCCL_DEBUG=INFO
 export NCCL_IB_DISABLE=1
 export NCCL_P2P_LEVEL=NVL
+
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export MASTER_ADDR=$(hostname)
 
@@ -180,10 +191,10 @@ mkdir -p $HF_HOME
 torchrun --nproc_per_node=$SLURM_NTASKS \
          --master_port=29500 \
          $HOME/conda_envs/vulntrain/bin/vulntrain-train-severity-classification \
-            --base-model roberta-base \
-            --dataset-id CIRCL/vulnerability-scores \
-            --repo-id cedricbonhomme/vulnerability-severity-classification-roberta-base \
-            --model-save-dir $MODEL_SAVE_DIR \
+            --base-model $BASE_MODEL \
+            --dataset-id $DATASET_ID \
+            --repo-id $RESULT_REPO_ID \
+            --model-save-dir $RESULT_SAVE_DIR \
             --no-codecarbon \
             --no-push \
             --no-cache
