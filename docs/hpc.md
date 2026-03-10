@@ -62,21 +62,6 @@ Save one of the scripts below as `run_vulntrain.slurm` (or a similar name) in
 your working directory. Adjust `--account`, `--partition`, time, memory, and
 GPU counts to match your project and cluster policies.
 
-If you use an `srun`-based launcher on your cluster, you can place that script
-here; otherwise, skip ahead to the `torchrun` examples.
-
-```bash
-
-```
-
-Key points:
-
-- The job requests 1 node with 4 GPUs and 4 tasks (one per GPU).
-- `WORLD_SIZE` is set from `SLURM_NTASKS` for distributed training.
-- Separate Hugging Face cache directories are used per task to reduce I/O
-    contention on shared filesystems.
-
-
 ### Single-node configuration using `torchrun`
 
 ```bash
