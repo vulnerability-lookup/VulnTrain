@@ -7,12 +7,12 @@
 
 VulnTrain offers a suite of commands to generate diverse AI datasets and train models using
 comprehensive vulnerability data from [Vulnerability-Lookup](https://github.com/vulnerability-lookup/vulnerability-lookup).
-It harnesses over one million JSON records from all supported advisory sources to build high-quality, domain-specific models.
-  
+It harnesses over one million JSON records from all supported advisory sources (CVE, GitHub advisories, CSAF, PySecDB, CNVD) to build high-quality, domain-specific models.
+
 Additionally, data from the ``vulnerability-lookup:meta`` container, including enrichment sources such as vulnrichment and Fraunhofer FKIE,
 is incorporated to enhance model quality.
 
-Check out the datasets and models on Hugging Face: 
+Check out the datasets and models on Hugging Face:
 
 [![Model on HF](https://huggingface.co/datasets/huggingface/badges/resolve/main/model-on-hf-xl-dark.svg)](https://huggingface.co/CIRCL)
 
@@ -20,24 +20,57 @@ For more information about the use of AI in Vulnerability-Lookup, please refer t
 [user manual](https://www.vulnerability-lookup.org/user-manual/ai/).
 
 
-## Usage
-
-Install VulnTrain:
+## Installation
 
 ```bash
-$ pipx install VulnTrain
+pipx install VulnTrain
 ```
+
+For development:
+
+```bash
+git clone https://github.com/vulnerability-lookup/VulnTrain.git
+cd VulnTrain/
+poetry install
+```
+
+
+## Usage
 
 Three types of commands are available:
 
-- **Dataset generation**: Create and prepare datasets.
+- **Dataset generation**: Create and prepare datasets from vulnerability sources.
 - **Model training**: Train models using the prepared datasets.
-  - Train a model to **classify** vulnerabilities by severity. [![Model on HF](https://huggingface.co/datasets/huggingface/badges/resolve/main/model-on-hf-sm-dark.svg)](https://huggingface.co/CIRCL/vulnerability-severity-classification-roberta-base)
-  - Train a model for **text generation** to assist in writing vulnerability descriptions [![Model on HF](https://huggingface.co/datasets/huggingface/badges/resolve/main/model-on-hf-sm-dark.svg)](https://huggingface.co/CIRCL/vulnerability-description-generation-gpt2#how-to-get-started-with-the-model)
 - **Model validation**: Assess the performance of trained models (validations, benchmarks, etc.).
 
+### CLI commands
 
-Check out the [documentation](docs/) for more information.
+| Command | Purpose |
+|---------|---------|
+| `vulntrain-dataset-generation` | Generate datasets from vulnerability sources |
+| `vulntrain-train-severity-classification` | Train severity classifier (RoBERTa/DistilBERT) |
+| `vulntrain-train-severity-cnvd-classification` | Train severity classifier for CNVD data |
+| `vulntrain-train-description-generation` | Train GPT-2 vulnerability description generator |
+| `vulntrain-train-cwe-classification` | Train CWE classifier from patches |
+| `vulntrain-validate-severity-classification` | Validate severity model |
+| `vulntrain-validate-text-generation` | Validate text generation model |
+
+### Models
+
+- Severity classification: [![Model on HF](https://huggingface.co/datasets/huggingface/badges/resolve/main/model-on-hf-sm-dark.svg)](https://huggingface.co/CIRCL/vulnerability-severity-classification-roberta-base)
+- Description generation: [![Model on HF](https://huggingface.co/datasets/huggingface/badges/resolve/main/model-on-hf-sm-dark.svg)](https://huggingface.co/CIRCL/vulnerability-description-generation-gpt2#how-to-get-started-with-the-model)
+
+
+## Distributed training on HPC clusters
+
+VulnTrain supports distributed multi-GPU training via SLURM, making it suitable for
+EuroHPC-style GPU clusters. See the [HPC documentation](docs/hpc.md) for
+Conda environment setup, single-node and multi-node SLURM job scripts, and NCCL configuration.
+
+
+## Documentation
+
+Check out the full [documentation](docs/) for detailed usage instructions, dataset generation examples, and training recipes.
 
 
 ## How to cite
@@ -66,4 +99,3 @@ Copyright (c) 2025-2026 Computer Incident Response Center Luxembourg (CIRCL)
 Copyright (C) 2025-2026 Cédric Bonhomme - https://github.com/cedricbonhomme
 Copyright (C) 2025 Léa Ulusan - https://github.com/3LS3-1F
 ~~~
-
