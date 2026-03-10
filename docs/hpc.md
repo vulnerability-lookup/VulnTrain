@@ -1,11 +1,12 @@
 
 # Running VulnTrain on an HPC cluster
 
-This page shows a reference configuration for running VulnTrain on a [EuroHPC-style](https://www.eurohpc-ju.europa.eu)
-GPU cluster managed by SLURM. Treat this as a template and adapt the account,
-partition, and resource requests to match your local system.
+This page provides a reference configuration for running VulnTrain on a
+[EuroHPC-style](https://www.eurohpc-ju.europa.eu) GPU cluster managed by SLURM.
+Treat it as a template and adapt the account, partition, and resource requests
+to match your local system.
 
-The workflow is:
+High-level workflow:
 
 1. Create a shared Conda environment.
 2. Test the installation on the login node.
@@ -14,8 +15,8 @@ The workflow is:
 ## 1. Shared Conda environment
 
 Run the following once on a **login node** to create a reusable environment for
-VulnTrain. If your site provides a module for Conda or Miniconda, make sure it
-is loaded first.
+VulnTrain. If your site provides Conda/Miniconda via environment modules, load
+the relevant module first.
 
 ```bash
 # 1. Make a folder for shared environments if it doesn't exist
@@ -55,95 +56,28 @@ vulntrain-train-severity-classification --help
 
 If these commands run without errors, you are ready to submit a job.
 
-## 3. Example SLURM script
+## 3. Example SLURM scripts
 
-Save the script below as `run_vulntrain.slurm` (or a similar name) in your
-working directory. Adjust `--account`, `--partition`, time, memory, and GPU
-counts to match your project and cluster policies.
+Save one of the scripts below as `run_vulntrain.slurm` (or a similar name) in
+your working directory. Adjust `--account`, `--partition`, time, memory, and
+GPU counts to match your project and cluster policies.
+
+If you use an `srun`-based launcher on your cluster, you can place that script
+here; otherwise, skip ahead to the `torchrun` examples.
 
 ```bash
-#!/bin/bash
-#SBATCH --job-name=vulntrain
-#SBATCH --account=<-your-account-id>
-#SBATCH --partition=gpu
-#SBATCH --nodes=1
-#SBATCH --ntasks=4          # one task per GPU
-#SBATCH --gpus-per-node=4   # allocate all 4 GPUs on the node
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
-#SBATCH --time=06:00:00
-#SBATCH --output=logs/vulntrain_%j.out
-#SBATCH --error=logs/vulntrain_%j.err
-#SBATCH --qos=default
 
-# -------------------------------
-# Distributed training variables
-# -------------------------------
-export MASTER_ADDR=$(scontrol show hostname $SLURM_NODELIST | head -n 1)
-export MASTER_PORT=29500
-export WORLD_SIZE=$SLURM_NTASKS
-
-# -------------------------------
-# Activate Conda environment
-# -------------------------------
-source $HOME/miniconda3/etc/profile.d/conda.sh
-conda activate $HOME/conda_envs/vulntrain
-
-# -------------------------------
-# Performance & stability settings
-# -------------------------------
-
-# Disable CodeCarbon for multi-GPU runs (prevents file collisions)
-export CODECARBON_OFF=1
-
-# Avoid tokenizer parallelism issues
-export TOKENIZERS_PARALLELISM=false
-
-# -------------------------------
-# HuggingFace cache directories
-# -------------------------------
-# Use node-local scratch if available, otherwise fallback to home
-export HF_HOME=${SLURM_TMPDIR:-$HOME}/hf_cache_$SLURM_PROCID
-export TRANSFORMERS_CACHE=$HF_HOME/transformers
-export DATASETS_CACHE=$HF_HOME/datasets
-mkdir -p $HF_HOME
-
-# Optional: improve NCCL stability on some clusters
-export NCCL_DEBUG=WARN
-export NCCL_IB_DISABLE=0
-
-# Show assigned GPUs
-echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
-nvidia-smi
-
-# -------------------------------
-# Launch Distributed Training
-# -------------------------------
-srun --ntasks=$SLURM_NTASKS \
-     --cpus-per-task=$SLURM_CPUS_PER_TASK \
-     --gpus-per-task=1 \
-     --export=ALL \
-     bash -c '
-export RANK=$SLURM_PROCID
-export LOCAL_RANK=$SLURM_LOCALID
-export CODECARBON_OFF=1
-
-$HOME/conda_envs/vulntrain/bin/vulntrain-train-severity-classification \
-        --base-model roberta-base \
-        --dataset-id CIRCL/vulnerability-scores \
-        --repo-id <-hugging-face-username->/vulnerability-severity-classification-roberta-base
-' 
 ```
 
 Key points:
 
 - The job requests 1 node with 4 GPUs and 4 tasks (one per GPU).
 - `WORLD_SIZE` is set from `SLURM_NTASKS` for distributed training.
-- Separate HuggingFace cache directories are used per task to avoid I/O
+- Separate Hugging Face cache directories are used per task to reduce I/O
     contention on shared filesystems.
 
 
-### A configuration using ``torchrun``
+### Single-node configuration using `torchrun`
 
 ```bash
 #!/bin/bash
@@ -195,10 +129,71 @@ torchrun --nproc_per_node=$SLURM_NTASKS \
             --dataset-id $DATASET_ID \
             --repo-id $RESULT_REPO_ID \
             --model-save-dir $RESULT_SAVE_DIR \
-            --no-codecarbon \
             --no-push \
             --no-cache
 ```
+
+
+### Example of multi-node configuration
+
+```bash
+#!/bin/bash
+#SBATCH --job-name=vulntrain
+#SBATCH --account=<-your-account-id->
+#SBATCH --partition=gpu
+#SBATCH --nodes=4
+#SBATCH --ntasks-per-node=4
+#SBATCH --gpus-per-node=4
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=10:00:00
+#SBATCH --output=logs/vulntrain_%j_%N.out
+#SBATCH --error=logs/vulntrain_%j_%N.err
+#SBATCH --qos=default
+
+set -e
+
+# -------------------------------
+# Activate Conda environment
+# -------------------------------
+source $HOME/miniconda3/etc/profile.d/conda.sh
+conda activate $HOME/conda_envs/vulntrain
+
+# --------------------------
+# Parameters for the trainer
+# --------------------------
+BASE_MODEL=roberta-base
+DATASET_ID=CIRCL/vulnerability-scores
+RESULT_REPO_ID=CIRCL/vulnerability-severity-classification-roberta-base
+RESULT_SAVE_DIR=$HOME/models/vulntrain_roberta
+
+# --------------------------
+# NCCL configuration
+# --------------------------
+export NCCL_DEBUG=INFO
+export NCCL_IB_DISABLE=1        # if no InfiniBand, keep it disabled
+export NCCL_P2P_LEVEL=NODE      # change from NVL to NODE for multi-node
+
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+
+# Optional but recommended
+export HF_HOME=${SLURM_TMPDIR:-$HOME}/hf_cache
+mkdir -p $HF_HOME
+
+torchrun --nnodes=$SLURM_JOB_NUM_NODES \
+         --nproc_per_node=$SLURM_NTASKS_PER_NODE \
+         --node_rank=$SLURM_NODEID \
+         --master_addr=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1) \
+         --master_port=29500 \
+         $HOME/conda_envs/vulntrain/bin/vulntrain-train-severity-classification \
+            --base-model $BASE_MODEL \
+            --dataset-id $DATASET_ID \
+            --repo-id $RESULT_REPO_ID \
+            --model-save-dir $RESULT_SAVE_DIR \
+            --no-cache \
+            --no-push
+```
+
 
 
 ## 4. Submit and monitor the job
@@ -209,7 +204,14 @@ Submit the job from the directory where `run_vulntrain.slurm` is stored:
 sbatch run_vulntrain.slurm
 ```
 
-To follow progress, use your cluster's standard tools, for example:
+To follow progress, use your cluster’s standard tools, for example:
 
 - `squeue -u $USER` to see queued and running jobs.
-- `tail -f vulntrain-<jobid>.out` to stream the job's output log.
+- `tail -f vulntrain-<jobid>.out` to stream the job’s output log.
+
+
+Display accounting data and job steps in the Slurm job accounting log or Slurm database:
+
+```bash
+sacct -j <-jobid-> --format=JobID,JobName,Partition,AllocTRES,State,Elapsed,TotalCPU
+```
