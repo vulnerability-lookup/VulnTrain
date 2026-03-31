@@ -6,8 +6,11 @@ from pathlib import Path
 
 import evaluate
 import numpy as np
+import torch
 from codecarbon import track_emissions
-from datasets import DatasetDict, load_dataset
+from datasets import Dataset, DatasetDict, load_dataset
+from sklearn.metrics import classification_report, f1_score
+from sklearn.utils.class_weight import compute_class_weight
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
@@ -24,12 +27,34 @@ logger = logging.getLogger(__name__)
 SEVERITY_MAPPING = {"Low": 0, "Medium": 1, "High": 2}
 
 
+ID2LABEL = {v: k for k, v in SEVERITY_MAPPING.items()}
+
+
 def compute_metrics(eval_pred):
-    """Compute accuracy for model evaluation."""
-    metric = evaluate.load("accuracy")
+    """Compute accuracy and per-class precision/recall/F1."""
+    accuracy = evaluate.load("accuracy")
     logits, labels = eval_pred
     predictions = np.argmax(logits, axis=-1)
-    return metric.compute(predictions=predictions, references=labels)
+
+    acc = accuracy.compute(predictions=predictions, references=labels)
+    macro_f1 = f1_score(labels, predictions, average="macro", zero_division=0)
+
+    report = classification_report(
+        labels,
+        predictions,
+        target_names=[ID2LABEL[i] for i in range(len(SEVERITY_MAPPING))],
+        output_dict=True,
+        zero_division=0,
+    )
+
+    metrics = {**acc, "f1_macro": macro_f1}
+    for label_name in SEVERITY_MAPPING:
+        if label_name in report:
+            metrics[f"{label_name}_precision"] = report[label_name]["precision"]
+            metrics[f"{label_name}_recall"] = report[label_name]["recall"]
+            metrics[f"{label_name}_f1"] = report[label_name]["f1-score"]
+
+    return metrics
 
 
 # Define severity mapping function
@@ -61,35 +86,108 @@ def flatten_description(example):
     return example
 
 
+class WeightedTrainer(Trainer):
+    """Trainer subclass that applies class-weighted cross-entropy loss."""
+
+    def __init__(self, *args, class_weights=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.class_weights = class_weights
+
+    def compute_loss(
+        self, model, inputs, return_outputs=False, num_items_in_batch=None
+    ):
+        labels = inputs.get("labels")
+        outputs = model(**inputs)
+        logits = outputs.get("logits")
+        loss_fct = torch.nn.CrossEntropyLoss(
+            weight=self.class_weights.to(logits.device)
+        )
+        loss = loss_fct(logits, labels)
+        return (loss, outputs) if return_outputs else loss
+
+
+def deduplicate_split(dataset, test_size=0.2, seed=42):
+    """Split dataset so that no description text appears in both train and test.
+
+    Deduplicates on the description field: groups entries by their description,
+    then splits the unique groups — ensuring all entries sharing a description
+    land in the same split.
+    """
+    # Build mapping: unique description -> list of row indices
+    desc_to_indices: dict[str, list[int]] = {}
+    for idx, desc in enumerate(dataset["description"]):
+        desc_to_indices.setdefault(desc, []).append(idx)
+
+    unique_descs = list(desc_to_indices.keys())
+    n_test = max(1, int(len(unique_descs) * test_size))
+
+    rng = np.random.RandomState(seed)
+    rng.shuffle(unique_descs)
+
+    test_descs = set(unique_descs[:n_test])
+
+    train_indices = []
+    test_indices = []
+    for desc, indices in desc_to_indices.items():
+        if desc in test_descs:
+            test_indices.extend(indices)
+        else:
+            train_indices.extend(indices)
+
+    logger.info(
+        f"Deduplicated split: {len(unique_descs)} unique descriptions, "
+        f"{len(train_indices)} train rows, {len(test_indices)} test rows"
+    )
+
+    return DatasetDict(
+        {
+            "train": dataset.select(train_indices),
+            "test": dataset.select(test_indices),
+        }
+    )
+
+
 @track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
     dataset = load_dataset(dataset_id)
 
-    if not isinstance(dataset, DatasetDict) or "train" not in dataset:
-        dataset = dataset.train_test_split(test_size=0.2, seed=42)
+    if isinstance(dataset, DatasetDict) and "train" in dataset:
+        # Recombine pre-split dataset so we can re-split without leakage
+        from datasets import concatenate_datasets
 
-    # logger.info("Example from raw dataset:")
-    # logger.info(dataset["train"][0])
+        combined = concatenate_datasets(
+            [dataset[split] for split in dataset if len(dataset[split]) > 0]
+        )
+    else:
+        combined = dataset if isinstance(dataset, Dataset) else dataset["train"]
 
-    dataset = dataset.map(map_cvss_to_severity)
+    combined = combined.map(map_cvss_to_severity)
+    combined = combined.filter(lambda x: x["severity"] in ["低", "中", "高"])
 
-    dataset = dataset.filter(lambda x: x["severity"] in ["低", "中", "高"])
+    if len(combined) == 0:
+        raise ValueError(
+            "No data left after filtering. Please check the dataset and label mapping."
+        )
+
+    # Split with deduplication on description to prevent data leakage
+    dataset = deduplicate_split(combined, test_size=0.2, seed=42)
 
     label_counter = Counter([ex["severity_label"] for ex in dataset["train"]])
     logger.info(f"Label distribution after filtering: {label_counter}")
 
-    if len(dataset["train"]) == 0:
-        raise ValueError(
-            "No training data left after filtering. Please check the dataset and label mapping."
-        )
-
-    # logger.info(f"Remaining examples: {len(dataset['train'])}")
-    # logger.info("Example after label mapping:")
-    # logger.info(dataset["train"][0])
-
-    # dataset = dataset.map(flatten_description)
-    # logger.info("Example after flattening description:")
-    # logger.info(dataset["train"][0])
+    # Compute balanced class weights for the training set
+    all_labels = np.array(
+        [SEVERITY_MAPPING[ex["severity_label"]] for ex in dataset["train"]]
+    )
+    present_classes = np.unique(all_labels)
+    weights = compute_class_weight(
+        class_weight="balanced", classes=present_classes, y=all_labels
+    )
+    class_weights_array = np.ones(len(SEVERITY_MAPPING), dtype=np.float32)
+    for cls, w in zip(present_classes, weights):
+        class_weights_array[cls] = w
+    class_weights = torch.tensor(class_weights_array, dtype=torch.float)
+    logger.info(f"Class weights: {dict(zip(SEVERITY_MAPPING.keys(), class_weights_array))}")
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
@@ -122,11 +220,10 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     model = AutoModelForSequenceClassification.from_pretrained(
         base_model,
         num_labels=num_labels,
-        id2label={v: k for k, v in SEVERITY_MAPPING.items()},
+        id2label=ID2LABEL,
         label2id=SEVERITY_MAPPING,
     )
 
-    # Define training arguments
     training_args = TrainingArguments(
         output_dir=model_save_dir,
         eval_strategy="epoch",
@@ -138,20 +235,22 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         weight_decay=0.01,
         logging_dir="./logs",
         logging_steps=10,
-        save_total_limit=2,
+        save_total_limit=3,
         load_best_model_at_end=True,
+        metric_for_best_model="accuracy",
+        greater_is_better=True,
         push_to_hub=True,
         hub_model_id=repo_id,
-        # remove_unused_columns=False,
     )
 
-    trainer = Trainer(
+    trainer = WeightedTrainer(
         model=model,
         args=training_args,
         train_dataset=tokenized_datasets["train"],
         eval_dataset=tokenized_datasets["test"],
         data_collator=data_collator,
         compute_metrics=compute_metrics,
+        class_weights=class_weights,
     )
 
     try:
