@@ -5,7 +5,7 @@ from pathlib import Path
 
 import evaluate
 import numpy as np
-from codecarbon import track_emissions
+from codecarbon import EmissionsTracker
 from datasets import load_dataset
 from transformers import (
     AutoModelForSequenceClassification,
@@ -124,6 +124,7 @@ def train(
     model_save_dir="./vulnerability-classify",
     push_to_hub=True,
     use_cache=False,
+    codecarbon=True,
 ):
     # Load dataset from Hugging Face
     dataset = load_dataset(dataset_id)
@@ -183,9 +184,7 @@ def train(
         save_total_limit=2,
         load_best_model_at_end=True,
         use_cache=use_cache,
-        push_to_hub=push_to_hub,
         hub_model_id=repo_id,
-        # remove_unused_columns=False,
     )
 
     # Create Trainer
@@ -199,9 +198,15 @@ def train(
     )
 
     # Train model
+    tracker = None
+    if codecarbon:
+        tracker = EmissionsTracker(project_name="VulnTrain", allow_multiple_runs=True)
+        tracker.start()
     try:
         trainer.train()
     finally:
+        if tracker is not None:
+            tracker.stop()
         model.save_pretrained(model_save_dir)
         tokenizer.save_pretrained(model_save_dir)
 
@@ -273,19 +278,14 @@ def main():
     logger.info(f"Saving model to: {args.model_save_dir}")
     logger.info("Starting the training process…")
 
-    train_fn = train
-    if not args.no_codecarbon:
-        train_fn = track_emissions(project_name="VulnTrain", allow_multiple_runs=True)(
-            train
-        )
-
-    train_fn(
+    train(
         args.base_model,
         args.dataset_id,
         args.repo_id,
         args.model_save_dir,
         push_to_hub=not args.no_push,
         use_cache=not args.no_cache,
+        codecarbon=not args.no_codecarbon,
     )
 
 
