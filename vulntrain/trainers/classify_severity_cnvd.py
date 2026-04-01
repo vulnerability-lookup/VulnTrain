@@ -7,7 +7,7 @@ from pathlib import Path
 import evaluate
 import numpy as np
 import torch
-from codecarbon import track_emissions
+from codecarbon import EmissionsTracker
 from datasets import Dataset, DatasetDict, load_dataset
 from sklearn.metrics import classification_report, f1_score
 from sklearn.utils.class_weight import compute_class_weight
@@ -147,7 +147,6 @@ def deduplicate_split(dataset, test_size=0.2, seed=42):
     )
 
 
-@track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
     dataset = load_dataset(dataset_id)
 
@@ -256,9 +255,12 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         class_weights=class_weights,
     )
 
+    tracker = EmissionsTracker(project_name="VulnTrain", allow_multiple_runs=True)
+    tracker.start()
     try:
         trainer.train()
     finally:
+        tracker.stop()
         model.save_pretrained(model_save_dir)
         tokenizer.save_pretrained(model_save_dir)
 
