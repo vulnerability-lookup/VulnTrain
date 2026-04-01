@@ -175,7 +175,10 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     label_counter = Counter([ex["severity_label"] for ex in dataset["train"]])
     logger.info(f"Label distribution after filtering: {label_counter}")
 
-    # Compute balanced class weights for the training set
+    # Compute dampened class weights for the training set.
+    # Full "balanced" weights are too aggressive (Low gets ~6x Medium), causing
+    # massive Medium recall loss. Square-root dampening provides a gentler boost
+    # to the minority Low class without overwhelming Medium/High.
     all_labels = np.array(
         [SEVERITY_MAPPING[ex["severity_label"]] for ex in dataset["train"]]
     )
@@ -185,9 +188,9 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     )
     class_weights_array = np.ones(len(SEVERITY_MAPPING), dtype=np.float32)
     for cls, w in zip(present_classes, weights):
-        class_weights_array[cls] = w
+        class_weights_array[cls] = np.sqrt(w)
     class_weights = torch.tensor(class_weights_array, dtype=torch.float)
-    logger.info(f"Class weights: {dict(zip(SEVERITY_MAPPING.keys(), class_weights_array))}")
+    logger.info(f"Class weights (sqrt-dampened): {dict(zip(SEVERITY_MAPPING.keys(), class_weights_array))}")
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
