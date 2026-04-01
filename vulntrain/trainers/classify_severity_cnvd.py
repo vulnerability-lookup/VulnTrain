@@ -241,7 +241,6 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         load_best_model_at_end=True,
         metric_for_best_model="accuracy",
         greater_is_better=True,
-        push_to_hub=True,
         hub_model_id=repo_id,
     )
 
