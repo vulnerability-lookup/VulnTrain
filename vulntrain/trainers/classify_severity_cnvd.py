@@ -106,6 +106,43 @@ class WeightedTrainer(Trainer):
         return (loss, outputs) if return_outputs else loss
 
 
+class FocalLossTrainer(Trainer):
+    """Trainer subclass that applies focal loss for class imbalance.
+
+    Focal loss down-weights easy (well-classified) examples and focuses
+    training on hard ones. Unlike class weighting, it adapts per-example
+    based on the model's current confidence, making it less likely to
+    degrade majority-class performance.
+
+    See: Lin et al., "Focal Loss for Dense Object Detection", 2017.
+    """
+
+    def __init__(self, *args, gamma=2.0, alpha=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.gamma = gamma
+        self.alpha = alpha
+
+    def compute_loss(
+        self, model, inputs, return_outputs=False, num_items_in_batch=None
+    ):
+        labels = inputs.get("labels")
+        outputs = model(**inputs)
+        logits = outputs.get("logits")
+
+        ce_loss = torch.nn.functional.cross_entropy(
+            logits, labels, reduction="none"
+        )
+        pt = torch.exp(-ce_loss)
+        focal_loss = ((1 - pt) ** self.gamma) * ce_loss
+
+        if self.alpha is not None:
+            alpha_t = self.alpha.to(logits.device)[labels]
+            focal_loss = alpha_t * focal_loss
+
+        loss = focal_loss.mean()
+        return (loss, outputs) if return_outputs else loss
+
+
 def deduplicate_split(dataset, test_size=0.2, seed=42):
     """Split dataset so that no description text appears in both train and test.
 
@@ -182,7 +219,7 @@ def train(
 
     # Compute class weights for the training set
     class_weights = None
-    if class_weights_mode != "none":
+    if class_weights_mode in ("sqrt", "balanced", "focal"):
         all_labels = np.array(
             [SEVERITY_MAPPING[ex["severity_label"]] for ex in dataset["train"]]
         )
@@ -257,25 +294,21 @@ def train(
         hub_model_id=repo_id,
     )
 
-    if class_weights is not None:
-        trainer = WeightedTrainer(
-            model=model,
-            args=training_args,
-            train_dataset=tokenized_datasets["train"],
-            eval_dataset=tokenized_datasets["test"],
-            data_collator=data_collator,
-            compute_metrics=compute_metrics,
-            class_weights=class_weights,
-        )
+    trainer_kwargs = dict(
+        model=model,
+        args=training_args,
+        train_dataset=tokenized_datasets["train"],
+        eval_dataset=tokenized_datasets["test"],
+        data_collator=data_collator,
+        compute_metrics=compute_metrics,
+    )
+
+    if class_weights_mode == "focal":
+        trainer = FocalLossTrainer(**trainer_kwargs, gamma=2.0, alpha=class_weights)
+    elif class_weights is not None:
+        trainer = WeightedTrainer(**trainer_kwargs, class_weights=class_weights)
     else:
-        trainer = Trainer(
-            model=model,
-            args=training_args,
-            train_dataset=tokenized_datasets["train"],
-            eval_dataset=tokenized_datasets["test"],
-            data_collator=data_collator,
-            compute_metrics=compute_metrics,
-        )
+        trainer = Trainer(**trainer_kwargs)
 
     tracker = EmissionsTracker(project_name="VulnTrain", allow_multiple_runs=True)
     tracker.start()
@@ -329,8 +362,8 @@ def main():
         "--class-weights",
         dest="class_weights_mode",
         default="sqrt",
-        choices=["none", "sqrt", "balanced"],
-        help="Class weighting mode: none (uniform loss), sqrt (dampened), balanced (full inverse-frequency).",
+        choices=["none", "sqrt", "balanced", "focal"],
+        help="Class weighting mode: none (uniform loss), sqrt (dampened), balanced (full inverse-frequency), focal (focal loss with alpha weights).",
     )
 
     args = parser.parse_args()
