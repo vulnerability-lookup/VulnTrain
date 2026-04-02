@@ -147,7 +147,13 @@ def deduplicate_split(dataset, test_size=0.2, seed=42):
     )
 
 
-def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
+def train(
+    base_model,
+    dataset_id,
+    repo_id,
+    model_save_dir="./vulnerability-classify",
+    class_weights_mode="sqrt",
+):
     dataset = load_dataset(dataset_id)
 
     if isinstance(dataset, DatasetDict) and "train" in dataset:
@@ -174,22 +180,29 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     label_counter = Counter([ex["severity_label"] for ex in dataset["train"]])
     logger.info(f"Label distribution after filtering: {label_counter}")
 
-    # Compute dampened class weights for the training set.
-    # Full "balanced" weights are too aggressive (Low gets ~6x Medium), causing
-    # massive Medium recall loss. Square-root dampening provides a gentler boost
-    # to the minority Low class without overwhelming Medium/High.
-    all_labels = np.array(
-        [SEVERITY_MAPPING[ex["severity_label"]] for ex in dataset["train"]]
-    )
-    present_classes = np.unique(all_labels)
-    weights = compute_class_weight(
-        class_weight="balanced", classes=present_classes, y=all_labels
-    )
-    class_weights_array = np.ones(len(SEVERITY_MAPPING), dtype=np.float32)
-    for cls, w in zip(present_classes, weights):
-        class_weights_array[cls] = np.sqrt(w)
-    class_weights = torch.tensor(class_weights_array, dtype=torch.float)
-    logger.info(f"Class weights (sqrt-dampened): {dict(zip(SEVERITY_MAPPING.keys(), class_weights_array))}")
+    # Compute class weights for the training set
+    class_weights = None
+    if class_weights_mode != "none":
+        all_labels = np.array(
+            [SEVERITY_MAPPING[ex["severity_label"]] for ex in dataset["train"]]
+        )
+        present_classes = np.unique(all_labels)
+        weights = compute_class_weight(
+            class_weight="balanced", classes=present_classes, y=all_labels
+        )
+        class_weights_array = np.ones(len(SEVERITY_MAPPING), dtype=np.float32)
+        for cls, w in zip(present_classes, weights):
+            if class_weights_mode == "sqrt":
+                class_weights_array[cls] = np.sqrt(w)
+            else:
+                class_weights_array[cls] = w
+        class_weights = torch.tensor(class_weights_array, dtype=torch.float)
+        logger.info(
+            f"Class weights ({class_weights_mode}): "
+            f"{dict(zip(SEVERITY_MAPPING.keys(), class_weights_array))}"
+        )
+    else:
+        logger.info("Class weights: disabled (uniform loss)")
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
@@ -244,15 +257,25 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         hub_model_id=repo_id,
     )
 
-    trainer = WeightedTrainer(
-        model=model,
-        args=training_args,
-        train_dataset=tokenized_datasets["train"],
-        eval_dataset=tokenized_datasets["test"],
-        data_collator=data_collator,
-        compute_metrics=compute_metrics,
-        class_weights=class_weights,
-    )
+    if class_weights is not None:
+        trainer = WeightedTrainer(
+            model=model,
+            args=training_args,
+            train_dataset=tokenized_datasets["train"],
+            eval_dataset=tokenized_datasets["test"],
+            data_collator=data_collator,
+            compute_metrics=compute_metrics,
+            class_weights=class_weights,
+        )
+    else:
+        trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=tokenized_datasets["train"],
+            eval_dataset=tokenized_datasets["test"],
+            data_collator=data_collator,
+            compute_metrics=compute_metrics,
+        )
 
     tracker = EmissionsTracker(project_name="VulnTrain", allow_multiple_runs=True)
     tracker.start()
@@ -302,6 +325,13 @@ def main():
         default="results",
         help="Directory to save tokenizer and model.",
     )
+    parser.add_argument(
+        "--class-weights",
+        dest="class_weights_mode",
+        default="sqrt",
+        choices=["none", "sqrt", "balanced"],
+        help="Class weighting mode: none (uniform loss), sqrt (dampened), balanced (full inverse-frequency).",
+    )
 
     args = parser.parse_args()
 
@@ -315,7 +345,13 @@ def main():
     logger.info(f"Saving model to: {args.model_save_dir}")
     logger.info("Starting the training process…")
 
-    train(args.base_model, args.dataset_id, args.repo_id, args.model_save_dir)
+    train(
+        args.base_model,
+        args.dataset_id,
+        args.repo_id,
+        args.model_save_dir,
+        class_weights_mode=args.class_weights_mode,
+    )
 
 
 if __name__ == "__main__":
