@@ -11,33 +11,32 @@ tags:
 - cnvd
 datasets:
 - CIRCL/Vulnerability-CNVD
-base_model: hfl/chinese-macbert-base
+base_model: {base_model}
 pipeline_tag: text-classification
 ---
 
 # VLAI: Automated Vulnerability Severity Classification (Chinese Text)
 
-A fine-tuned [hfl/chinese-macbert-base](https://huggingface.co/hfl/chinese-macbert-base) model for classifying Chinese vulnerability descriptions from the [China National Vulnerability Database (CNVD)](https://www.cnvd.org.cn/) into three severity levels: **Low**, **Medium**, and **High**.
+A fine-tuned [{base_model}](https://huggingface.co/{base_model}) model for classifying Chinese vulnerability descriptions from the [China National Vulnerability Database (CNVD)](https://www.cnvd.org.cn/) into three severity levels: **Low**, **Medium**, and **High**.
 
-Trained on the [CIRCL/Vulnerability-CNVD](https://huggingface.co/datasets/CIRCL/Vulnerability-CNVD) dataset as part of the [VulnTrain](https://github.com/vulnerability-lookup/VulnTrain) project.
+Trained on the [{dataset_id}](https://huggingface.co/datasets/{dataset_id}) dataset as part of the [VulnTrain](https://github.com/vulnerability-lookup/VulnTrain) project.
 
 ## Evaluation results
 
-Evaluated on a **deduplicated test set** (25,845 samples) where no description text appears in both train and test splits, preventing data leakage from CNVD's reuse of boilerplate descriptions across different vulnerability IDs.
+Evaluated on a **deduplicated test set** ({test_samples} samples) where no description text appears in both train and test splits, preventing data leakage from CNVD's reuse of boilerplate descriptions across different vulnerability IDs.
 
 | Class  | Precision | Recall | F1-score | Support |
 |--------|-----------|--------|----------|---------|
-| Low    | 0.5968    | 0.4099 | 0.4860   | 2,293   |
-| Medium | 0.7867    | 0.8165 | 0.8013   | 14,351  |
-| High   | 0.7662    | 0.7809 | 0.7735   | 9,201   |
+| Low    | {Low_precision:.4f}    | {Low_recall:.4f} | {Low_f1:.4f}   | {Low_support}   |
+| Medium | {Medium_precision:.4f} | {Medium_recall:.4f} | {Medium_f1:.4f} | {Medium_support} |
+| High   | {High_precision:.4f}   | {High_recall:.4f} | {High_f1:.4f}   | {High_support}   |
 
-- **Overall accuracy**: 76.8%
-- **Macro F1**: 0.6870
-- **Weighted F1**: 0.7634
+- **Overall accuracy**: {accuracy:.2%}
+- **Macro F1**: {f1_macro:.4f}
 
 ### Class distribution
 
-The dataset is imbalanced: Low (8.9%), Medium (55.5%), High (35.6%).
+The dataset is imbalanced: Low ({Low_pct:.1f}%), Medium ({Medium_pct:.1f}%), High ({High_pct:.1f}%).
 
 ## Usage
 
@@ -46,18 +45,17 @@ from transformers import pipeline
 
 classifier = pipeline(
     "text-classification",
-    model="CIRCL/vulnerability-severity-classification-chinese-macbert-base"
+    model="{repo_id}"
 )
 
 description = "TOTOLINK A3600R存在缓冲区溢出漏洞，攻击者可利用该漏洞在系统上执行任意代码或者导致拒绝服务。"
 result = classifier(description)
 print(result)
-# [{'label': 'High', 'score': 0.98}]
 ```
 
 ## Known limitations
 
-- **Low severity recall is ~41%**: approximately 60% of Low-severity entries are misclassified, mostly as Medium. This reflects the vocabulary overlap between Low and Medium descriptions in CNVD data. Class-weighted loss and focal loss were tested but all degraded Medium recall disproportionately without a net benefit.
+- **Low severity recall**: the Low class has the lowest recall. Approximately 60% of Low-severity entries are misclassified, mostly as Medium. This reflects the vocabulary overlap between Low and Medium descriptions in CNVD data. Class-weighted loss and focal loss were tested but all degraded Medium recall disproportionately without a net benefit.
 
 - **Keyword dependency**: the model biases toward a vulnerability type's typical severity. For example, buffer overflow descriptions are predicted as High regardless of the actual assigned severity. On entries where the actual severity deviates from the type's typical severity, accuracy drops from ~89% to ~55%.
 
@@ -69,13 +67,13 @@ These limitations were identified through independent analysis in [VulnTrain#19]
 
 ## Training details
 
-- **Base model**: [hfl/chinese-macbert-base](https://huggingface.co/hfl/chinese-macbert-base)
-- **Dataset**: [CIRCL/Vulnerability-CNVD](https://huggingface.co/datasets/CIRCL/Vulnerability-CNVD)
+- **Base model**: [{base_model}](https://huggingface.co/{base_model})
+- **Dataset**: [{dataset_id}](https://huggingface.co/datasets/{dataset_id})
 - **Train/test split**: deduplicated on description text (no leakage), 80/20 split
-- **Loss**: uniform cross-entropy (no class weighting)
-- **Learning rate**: 3e-05
-- **Batch size**: 16
-- **Epochs**: 5
+- **Loss**: {loss_description}
+- **Learning rate**: {learning_rate}
+- **Batch size**: {batch_size}
+- **Epochs**: {num_epochs}
 - **Best model selection**: by accuracy
 
 ## References

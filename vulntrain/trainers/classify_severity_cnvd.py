@@ -322,17 +322,56 @@ def train(
     trainer.push_to_hub()
     tokenizer.push_to_hub(repo_id)
 
-    # Push model card
-    model_card_path = Path(__file__).parent / "model_card_cnvd_severity.md"
-    if model_card_path.exists():
+    # Generate and push model card with actual eval metrics
+    eval_results = trainer.evaluate()
+    test_labels = [
+        SEVERITY_MAPPING[ex["severity_label"]] for ex in dataset["test"]
+    ]
+    test_samples = len(test_labels)
+    label_counts = Counter(test_labels)
+
+    loss_descriptions = {
+        "none": "uniform cross-entropy (no class weighting)",
+        "sqrt": "class-weighted cross-entropy (sqrt-dampened)",
+        "balanced": "class-weighted cross-entropy (balanced)",
+        "focal": "focal loss (gamma=2.0, balanced alpha)",
+    }
+
+    template_vars = {
+        "base_model": base_model,
+        "dataset_id": dataset_id,
+        "repo_id": repo_id,
+        "test_samples": f"{test_samples:,}",
+        "accuracy": eval_results.get("eval_accuracy", 0),
+        "f1_macro": eval_results.get("eval_f1_macro", 0),
+        "loss_description": loss_descriptions.get(class_weights_mode, "uniform cross-entropy"),
+        "learning_rate": training_args.learning_rate,
+        "batch_size": training_args.per_device_train_batch_size,
+        "num_epochs": int(training_args.num_train_epochs),
+    }
+
+    for label_name, label_id in SEVERITY_MAPPING.items():
+        count = label_counts.get(label_id, 0)
+        template_vars[f"{label_name}_precision"] = eval_results.get(f"eval_{label_name}_precision", 0)
+        template_vars[f"{label_name}_recall"] = eval_results.get(f"eval_{label_name}_recall", 0)
+        template_vars[f"{label_name}_f1"] = eval_results.get(f"eval_{label_name}_f1", 0)
+        template_vars[f"{label_name}_support"] = f"{count:,}"
+        template_vars[f"{label_name}_pct"] = 100 * count / test_samples if test_samples else 0
+
+    model_card_template = Path(__file__).parent / "model_card_cnvd_severity.md"
+    if model_card_template.exists():
         from huggingface_hub import HfApi
+
+        card_content = model_card_template.read_text().format(**template_vars)
+        card_path = Path(model_save_dir) / "README.md"
+        card_path.write_text(card_content)
 
         api = HfApi()
         api.upload_file(
-            path_or_fileobj=str(model_card_path),
+            path_or_fileobj=str(card_path),
             path_in_repo="README.md",
             repo_id=repo_id,
-            commit_message="Update model card with honest metrics and known limitations",
+            commit_message="Update model card with evaluation metrics",
         )
         logger.info(f"Model card pushed to {repo_id}")
 
