@@ -189,7 +189,7 @@ def train(
     dataset_id,
     repo_id,
     model_save_dir="./vulnerability-classify",
-    class_weights_mode="sqrt",
+    class_weights_mode="none",
 ):
     dataset = load_dataset(dataset_id)
 
@@ -361,7 +361,7 @@ def main():
     parser.add_argument(
         "--class-weights",
         dest="class_weights_mode",
-        default="sqrt",
+        default="none",
         choices=["none", "sqrt", "balanced", "focal"],
         help="Class weighting mode: none (uniform loss), sqrt (dampened), balanced (full inverse-frequency), focal (focal loss with alpha weights).",
     )
