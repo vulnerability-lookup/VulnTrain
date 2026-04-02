@@ -322,6 +322,20 @@ def train(
     trainer.push_to_hub()
     tokenizer.push_to_hub(repo_id)
 
+    # Push model card
+    model_card_path = Path(__file__).parent / "model_card_cnvd_severity.md"
+    if model_card_path.exists():
+        from huggingface_hub import HfApi
+
+        api = HfApi()
+        api.upload_file(
+            path_or_fileobj=str(model_card_path),
+            path_in_repo="README.md",
+            repo_id=repo_id,
+            commit_message="Update model card with honest metrics and known limitations",
+        )
+        logger.info(f"Model card pushed to {repo_id}")
+
 
 def main():
     parser = argparse.ArgumentParser(
