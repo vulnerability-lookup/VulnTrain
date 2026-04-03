@@ -6,9 +6,10 @@
 
 ## Presentation
 
-VulnTrain provides a set of tools to generate diverse AI-ready datasets and train models using comprehensive vulnerability data from Vulnerability-Lookup.
-It leverages over one million JSON records from multiple advisory sources to build high-quality, domain-specific models.
+VulnTrain provides a set of tools to generate diverse AI-ready datasets and train models using comprehensive vulnerability data from [Vulnerability-Lookup](https://vulnerability.circl.lu).
+It leverages over one million JSON records from multiple advisory sources (CVE, GitHub advisories, CSAF, PySecDB, CNVD) to build severity classifiers, description generators, and CWE classifiers.
 
+Models and datasets are published to Hugging Face Hub under the [CIRCL](https://huggingface.co/CIRCL) organization.
 
 ## Installation
 
@@ -20,9 +21,9 @@ poetry install
 
 Three types of commands are available:
 
-- **Dataset generation**: Create and prepare datasets.
+- **Dataset generation**: Create and prepare datasets from vulnerability sources.
 - **Model training**: Train models using the prepared datasets.
-- **Model validation**: Evaluate the performance of trained models.
+- **Model validation**: Evaluate and compare trained models.
 
 For AMD Ryzen GPU:
 
@@ -30,8 +31,11 @@ For AMD Ryzen GPU:
 pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/rocm6.4/
 ```
 
-## Datasets
+## Configuration
 
+Copy `vulntrain/config/conf_sample.py` to `vulntrain/config/conf.py` and fill in the Valkey connection details and tokens. Set the `VulnTrain_CONFIG` environment variable to point to your config file.
+
+## Datasets
 
 Ensure that the ``huggingface_hub`` package is installed:
 
@@ -45,10 +49,10 @@ Then log in to Hugging Face:
 hf auth login
 ```
 
-Then ensure that the kvrocks database of Vulnerability-Lookup is running.
+Then ensure that the Valkey database of Vulnerability-Lookup is running.
 
 
-### Vulnerabililty severity scores
+### Vulnerability severity scores
 
 Example: Generate [CIRCL/vulnerability-scores](https://huggingface.co/datasets/CIRCL/vulnerability-scores) dataset
 
@@ -56,11 +60,14 @@ Example: Generate [CIRCL/vulnerability-scores](https://huggingface.co/datasets/C
 vulntrain-dataset-generation --sources cvelistv5,github,csaf_redhat,csaf_cisco,csaf_cisa,pysec --repo-id=CIRCL/vulnerability-scores
 ```
 
-Example: Generate [CIRCL/Vulnerability/CNVD](https://huggingface.co/datasets/CIRCL/Vulnerability-CNVD) dataset
+Example: Generate [CIRCL/Vulnerability-CNVD](https://huggingface.co/datasets/CIRCL/Vulnerability-CNVD) dataset
 
 ```bash
 vulntrain-dataset-generation --sources cnvd --repo-id=CIRCL/Vulnerability-CNVD
 ```
+
+The CNVD dataset includes a `cve_id` field cross-referencing CVE equivalents (~81% of entries).
+See the [dataset card](https://huggingface.co/datasets/CIRCL/Vulnerability-CNVD) for details on coverage, severity distribution, and known caveats.
 
 
 ### Associating Git Fixes with Common Weakness Enumerations (CWEs)
@@ -86,6 +93,8 @@ Generate the model [CIRCL/vulnerability-severity-classification-chinese-macbert-
 ```bash
 vulntrain-train-severity-cnvd-classification --base-model hfl/chinese-macbert-base --dataset-id CIRCL/Vulnerability-CNVD --repo-id CIRCL/vulnerability-severity-classification-chinese-macbert-base
 ```
+
+The CNVD trainer uses a deduplicated train/test split to prevent data leakage and supports different loss strategies via `--class-weights` (`none`, `sqrt`, `balanced`, `focal`). Defaults to uniform loss. See the [improvements report](cnvd-severity-improvements.md) for details.
 
 ### Training for CWE classification
 
@@ -130,6 +139,18 @@ Using CUDA (Nvidia GPU).
 
 
 ## Validation
+
+### Severity model comparison (CNVD)
+
+Compare old and new CNVD severity models on a deduplicated test set:
+
+```bash
+python -m vulntrain.validators.severity_cnvd \
+  --old-model CIRCL/vulnerability-severity-classification-chinese-macbert-base \
+  --new-model CIRCL/vulnerability-severity-classification-chinese-macbert-base-test
+```
+
+### Text generation
 
 It is possible to send prompts to a model trained for text generation (descriptions of vulnerabilities).
 
