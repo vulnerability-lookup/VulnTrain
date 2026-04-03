@@ -52,10 +52,34 @@ The model card is now a template (`model_card_cnvd_severity.md`) populated with 
 
 ### Known limitations documented
 
-- Low severity recall (~41%)
-- Keyword dependency (accuracy drops from ~89% to ~55% on atypical-severity entries)
-- Negation blindness
-- CVE overlap (81% of CNVD entries have a CVE equivalent)
+The model card now documents:
+
+- **Low severity recall (~41%)**: ~60% of Low entries are misclassified as Medium due to vocabulary overlap. All weighting strategies degrade Medium recall disproportionately.
+- **Keyword dependency**: the model biases toward a vulnerability type's typical severity. Accuracy drops from ~89% to ~55% on atypical-severity entries.
+- **Negation blindness**: "does NOT allow RCE" still predicts High with high confidence.
+- **CVE overlap**: 81% of CNVD entries have a CVE equivalent. The model primarily adds value for the ~19% CNVD-only entries.
+
+These findings align with independent results from [CyberScale Phase 1](https://github.com/eromang/researches/blob/main/CyberScale/docs/lessons-learned.md) (Point 29), which plateaued at ~62% band accuracy on a 4-class CVSS classifier using ModernBERT-base with similar approaches (CWE enrichment, multi-task heads, CPE features — none moving the needle beyond ~2pp).
+
+## Dataset improvements
+
+### CVE cross-references
+
+The `extract_cnvd` function now extracts the `cve_id` field from `cves.cve.cveNumber` in the raw CNVD JSON. This enables users to cross-reference CNVD entries with their CVE equivalents and filter CNVD-only entries.
+
+### Dataset card
+
+A dataset card (`dataset_card_cnvd.md`) was added documenting:
+
+- Field descriptions including the new `cve_id` column
+- CVE overlap rate: 81% overall (68-69% in 2020-2021, 91-97% after 2022)
+- Severity distribution: High ~36%, Medium ~55%, Low ~9%
+- Coverage decline: 94% of reserved IDs published in 2015 → 4% in 2023 (post-RMSV regulations, September 2021)
+- Warning about duplicate descriptions and train/test split leakage
+
+## Comparison validator
+
+A dedicated validator (`validators/severity_cnvd.py`) was added to evaluate the old and new models side by side on the same deduplicated test set. It reports per-class precision/recall/F1, confusion matrices, and a summary delta table.
 
 ## Commits
 
@@ -70,8 +94,9 @@ The model card is now a template (`model_card_cnvd_severity.md`) populated with 
 | `ed2c230` | `--class-weights` flag (none/sqrt/balanced) |
 | `f1cd426` | Focal loss option |
 | `9fa0f86` | Default to uniform loss |
-| `7920361` | Static model card |
+| `7920361` | Model card |
 | `5b2866c` | Dynamic model card from eval metrics |
+| `30f1872` | CVE cross-references and dataset card |
 
 ## References
 
@@ -79,3 +104,4 @@ The model card is now a template (`model_card_cnvd_severity.md`) populated with 
 - Model: [CIRCL/vulnerability-severity-classification-chinese-macbert-base](https://huggingface.co/CIRCL/vulnerability-severity-classification-chinese-macbert-base)
 - Dataset: [CIRCL/Vulnerability-CNVD](https://huggingface.co/datasets/CIRCL/Vulnerability-CNVD)
 - External validation: [eromang/researches/CNVD-Dataset-Validation](https://github.com/eromang/researches/tree/main/CNVD-Dataset-Validation)
+- Related work: [CyberScale Phase 1 lessons learned](https://github.com/eromang/researches/blob/main/CyberScale/docs/lessons-learned.md)
