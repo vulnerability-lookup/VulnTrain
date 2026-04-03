@@ -1,5 +1,6 @@
 import argparse
 import json
+from pathlib import Path
 from typing import Any, Generator
 
 import valkey
@@ -168,11 +169,21 @@ class VulnExtractor:
             # skip vulnerabilities with no severity
             return {}
 
+        # Extract CVE cross-reference if available
+        cve_id = ""
+        for cve_entry in vuln.get("cves", {}).get("cve", []):
+            if isinstance(cve_entry, dict) and cve_entry.get("cveNumber"):
+                cve_id = cve_entry["cveNumber"]
+                break
+        if isinstance(vuln.get("cves", {}).get("cve"), dict):
+            cve_id = vuln["cves"]["cve"].get("cveNumber", "")
+
         return {
             "id": vuln_id,
             "title": vuln_title,
             "description": vuln_description,
             "severity": vuln_severity,
+            "cve_id": cve_id,
         }
 
     def __call__(self) -> Generator[dict[str, Any], None, None]:
@@ -257,6 +268,23 @@ def main():
             dataset_dict.push_to_hub(args.repo_id, commit_message=args.commit_message)
         else:
             dataset_dict.push_to_hub(args.repo_id)
+
+        # Push dataset card if available for this source
+        source_key = sources[0] if len(sources) == 1 else None
+        if source_key:
+            card_path = Path(__file__).parent / f"dataset_card_{source_key}.md"
+            if card_path.exists():
+                from huggingface_hub import HfApi
+
+                api = HfApi()
+                api.upload_file(
+                    path_or_fileobj=str(card_path),
+                    path_in_repo="README.md",
+                    repo_id=args.repo_id,
+                    repo_type="dataset",
+                    commit_message="Update dataset card",
+                )
+                print(f"Dataset card pushed to {args.repo_id}")
 
 
 if __name__ == "__main__":
