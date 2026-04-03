@@ -1,5 +1,40 @@
 # Changelog
 
+## Release 3.0.0 (2026-04-03)
+
+### What's New
+
+#### CNVD Severity Trainer
+
+- **Data leakage fix**: new `deduplicate_split()` function groups entries by description text before splitting, preventing identical descriptions from appearing in both train and test sets. CNVD reuses boilerplate descriptions across different vulnerability IDs, which previously contaminated 15.6% of the test set.
+- **Per-class metrics**: `compute_metrics` now reports precision, recall, and F1 per class (Low/Medium/High) alongside overall accuracy and macro F1 at each evaluation epoch.
+- **Class weighting options**: new `--class-weights` flag (`none`, `sqrt`, `balanced`, `focal`) for experimenting with class imbalance strategies. Includes a `FocalLossTrainer` implementation (Lin et al., 2017). Defaults to uniform loss after experiments showed all weighting strategies degrade Medium recall disproportionately.
+- **Best model checkpoint selection**: `metric_for_best_model` set to `accuracy` (was defaulting to `eval_loss`), `save_total_limit` increased from 2 to 3.
+- **Dynamic model card**: model card is now a template populated with actual eval metrics from `trainer.evaluate()` after each training run. Documents per-class metrics, training configuration, and known limitations.
+
+#### CNVD Dataset
+
+- **CVE cross-references**: `extract_cnvd` now extracts the `cve_id` field from `cves.cve.cveNumber`, enabling cross-referencing with CVE equivalents (~81% of entries).
+- **Dataset card**: new dataset card documenting severity distribution, CVE overlap rates, coverage decline post-RMSV (94% published in 2015 to 4% in 2023), and duplicate description caveat.
+
+#### Validation
+
+- **CNVD severity model comparison validator**: new `validators/severity_cnvd.py` script to evaluate old and new models side by side on the same deduplicated test set, reporting per-class metrics, confusion matrices, and summary deltas.
+
+### Fixes
+
+- **CodeCarbon tracker hang**: replaced `@track_emissions` decorator with explicit `EmissionsTracker` scoped to `trainer.train()` only. Removed `push_to_hub=True` from `TrainingArguments` which caused the trainer to upload internally before returning. Applied to both `classify_severity_cnvd.py` and `classify_severity.py`.
+
+### Documentation
+
+- Added technical report: `docs/cnvd-severity-improvements.md`.
+- Improved `docs/index.md` with configuration section, CNVD-specific details, and validator usage.
+
+### Acknowledgments
+
+Thanks to [Eric Romang](https://github.com/eromang) for his thorough independent analysis ([VulnTrain#19](https://github.com/vulnerability-lookup/VulnTrain/issues/19)) that prompted these improvements.
+
+
 ## Release 2.2.0 (2026-02-19)
 
 ### What's New
