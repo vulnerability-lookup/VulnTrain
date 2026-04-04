@@ -210,6 +210,7 @@ class VulnExtractor:
                 if not vuln_data.get("description"):
                     continue
 
+                vuln_data["source"] = source
                 yield vuln_data
 
                 count += 1

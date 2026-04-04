@@ -7,6 +7,7 @@ import evaluate
 import numpy as np
 from codecarbon import EmissionsTracker
 from datasets import load_dataset
+from sklearn.metrics import classification_report, f1_score
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
@@ -30,12 +31,34 @@ logger = logging.getLogger(__name__)
 SEVERITY_MAPPING = {"Low": 0, "Medium": 1, "High": 2, "Critical": 3}
 
 
+ID2LABEL = {v: k for k, v in SEVERITY_MAPPING.items()}
+
+
 def compute_metrics(eval_pred):
-    """Compute accuracy and F1-score for model evaluation."""
-    metric = evaluate.load("accuracy")
+    """Compute accuracy and per-class precision/recall/F1."""
+    accuracy = evaluate.load("accuracy")
     logits, labels = eval_pred
     predictions = np.argmax(logits, axis=-1)
-    return metric.compute(predictions=predictions, references=labels)
+
+    acc = accuracy.compute(predictions=predictions, references=labels)
+    macro_f1 = f1_score(labels, predictions, average="macro", zero_division=0)
+
+    report = classification_report(
+        labels,
+        predictions,
+        target_names=[ID2LABEL[i] for i in range(len(SEVERITY_MAPPING))],
+        output_dict=True,
+        zero_division=0,
+    )
+
+    metrics = {**acc, "f1_macro": macro_f1}
+    for label_name in SEVERITY_MAPPING:
+        if label_name in report:
+            metrics[f"{label_name}_precision"] = report[label_name]["precision"]
+            metrics[f"{label_name}_recall"] = report[label_name]["recall"]
+            metrics[f"{label_name}_f1"] = report[label_name]["f1-score"]
+
+    return metrics
 
 
 # Define severity mapping function
@@ -181,8 +204,10 @@ def train(
         weight_decay=0.01,
         logging_dir="./logs",
         logging_steps=10,
-        save_total_limit=2,
+        save_total_limit=3,
         load_best_model_at_end=True,
+        metric_for_best_model="accuracy",
+        greater_is_better=True,
         use_cache=use_cache,
         hub_model_id=repo_id,
     )
