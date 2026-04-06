@@ -1,5 +1,25 @@
 # Changelog
 
+## Release 3.1.0 (2026-04-06)
+
+### What's New
+
+#### Datasets
+
+- **Source field**: each vulnerability entry now includes a `source` field identifying its origin (cvelistv5, github, pysec, cnvd, csaf_*).
+- **Dynamic dataset card for multi-source datasets**: when generating a dataset from multiple sources (e.g., `--sources cvelistv5,github,csaf_redhat,csaf_cisco,csaf_cisa,pysec`), a dataset card is now automatically generated with a per-source breakdown table showing entry counts and percentages.
+
+#### Training
+
+- **Per-class metrics for severity trainer** (`classify_severity.py`): `compute_metrics` now reports precision, recall, and F1 per class (Low/Medium/High/Critical) alongside overall accuracy and macro F1.
+- **Best model checkpoint selection** (`classify_severity.py`): model selected by accuracy instead of eval_loss, `save_total_limit` increased from 2 to 3.
+
+### Changes
+
+- Moved all HuggingFace card templates (dataset cards, model cards) to a dedicated `vulntrain/cards/` directory.
+- Updated dependencies.
+
+
 ## Release 3.0.0 (2026-04-03)
 
 ### What's New
