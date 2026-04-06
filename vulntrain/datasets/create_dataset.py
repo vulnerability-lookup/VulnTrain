@@ -1,5 +1,6 @@
 import argparse
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Any, Generator
 
@@ -227,6 +228,58 @@ class VulnExtractor:
         return None
 
 
+SOURCE_LABELS = {
+    "cvelistv5": "CVE Program (enriched with vulnrichment and Fraunhofer FKIE)",
+    "github": "GitHub Security Advisories",
+    "pysec": "PySec advisories",
+    "csaf_redhat": "CSAF Red Hat",
+    "csaf_cisco": "CSAF Cisco",
+    "csaf_cisa": "CSAF CISA",
+    "cnvd": "China National Vulnerability Database (CNVD)",
+}
+
+
+def _generate_dataset_card(
+    sources: list[str],
+    vulns: list[dict[str, Any]],
+    dataset_dict: DatasetDict,
+    repo_id: str,
+) -> str | None:
+    """Generate a dataset card from a template, populated with actual stats."""
+    # Single-source: use static template if available
+    if len(sources) == 1:
+        static_card = Path(__file__).parent.parent / "cards" / f"dataset_card_{sources[0]}.md"
+        if static_card.exists():
+            return static_card.read_text()
+        return None
+
+    # Multi-source: use the vulnerability-scores template
+    template_path = (
+        Path(__file__).parent.parent / "cards" / "dataset_card_vulnerability_scores.md"
+    )
+    if not template_path.exists():
+        return None
+
+    total = len(vulns)
+    source_counts = Counter(v.get("source", "unknown") for v in vulns)
+
+    # Build source table sorted by count descending
+    rows = ["| Source | Label | Entries | Share |", "|--------|-------|---------|-------|"]
+    for src, count in source_counts.most_common():
+        label = SOURCE_LABELS.get(src, src)
+        pct = 100 * count / total if total else 0
+        rows.append(f"| `{src}` | {label} | {count:,} | {pct:.1f}% |")
+
+    template = template_path.read_text()
+    return template.format(
+        repo_id=repo_id,
+        total_entries=total,
+        source_table="\n".join(rows),
+        train_examples=len(dataset_dict["train"]),
+        test_examples=len(dataset_dict["test"]),
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Dataset generation.")
     parser.add_argument(
@@ -270,22 +323,26 @@ def main():
         else:
             dataset_dict.push_to_hub(args.repo_id)
 
-        # Push dataset card if available for this source
-        source_key = sources[0] if len(sources) == 1 else None
-        if source_key:
-            card_path = Path(__file__).parent / f"dataset_card_{source_key}.md"
-            if card_path.exists():
-                from huggingface_hub import HfApi
+        # Push dataset card
+        card_content = _generate_dataset_card(
+            sources, vulns, dataset_dict, args.repo_id
+        )
+        if card_content:
+            from huggingface_hub import HfApi
 
-                api = HfApi()
-                api.upload_file(
-                    path_or_fileobj=str(card_path),
-                    path_in_repo="README.md",
-                    repo_id=args.repo_id,
-                    repo_type="dataset",
-                    commit_message="Update dataset card",
-                )
-                print(f"Dataset card pushed to {args.repo_id}")
+            card_path = Path("dataset_card_generated.md")
+            card_path.write_text(card_content)
+
+            api = HfApi()
+            api.upload_file(
+                path_or_fileobj=str(card_path),
+                path_in_repo="README.md",
+                repo_id=args.repo_id,
+                repo_type="dataset",
+                commit_message="Update dataset card",
+            )
+            card_path.unlink()
+            print(f"Dataset card pushed to {args.repo_id}")
 
 
 if __name__ == "__main__":

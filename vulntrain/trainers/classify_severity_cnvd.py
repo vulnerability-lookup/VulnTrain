@@ -358,7 +358,7 @@ def train(
         template_vars[f"{label_name}_support"] = f"{count:,}"
         template_vars[f"{label_name}_pct"] = 100 * count / test_samples if test_samples else 0
 
-    model_card_template = Path(__file__).parent / "model_card_cnvd_severity.md"
+    model_card_template = Path(__file__).parent.parent / "cards" / "model_card_cnvd_severity.md"
     if model_card_template.exists():
         from huggingface_hub import HfApi
 
