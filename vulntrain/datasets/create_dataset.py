@@ -4,6 +4,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Generator
 
+import cvss
 import valkey
 from datasets import Dataset, DatasetDict
 
@@ -156,6 +157,58 @@ class VulnExtractor:
             "cvss_v2_0": cvss_scores.get("cvss_v2_0", None),
         }
 
+    def extract_fstec(self, vuln: dict[str, Any]) -> dict[str, Any]:
+        vuln_id = vuln.get("Идентификатор") or ""
+        vuln_title = (vuln.get("Наименование уязвимости") or "").strip()
+        vuln_description = (vuln.get("Описание уязвимости") or "").strip()
+
+        if not vuln_description:
+            return {}
+
+        cvss_scores = self._parse_fstec_cvss(vuln)
+
+        # Extract CVE cross-reference
+        cve_id = vuln.get("Идентификаторы других систем описаний уязвимости") or ""
+        if cve_id and not cve_id.startswith("CVE-"):
+            cve_id = ""
+
+        return {
+            "id": vuln_id,
+            "title": vuln_title,
+            "description": vuln_description,
+            "cpes": [],
+            "cvss_v4_0": cvss_scores.get("cvss_v4_0", None),
+            "cvss_v3_1": cvss_scores.get("cvss_v3_1", None),
+            "cvss_v3_0": cvss_scores.get("cvss_v3_0", None),
+            "cvss_v2_0": cvss_scores.get("cvss_v2_0", None),
+            "cve_id": cve_id,
+        }
+
+    @staticmethod
+    def _parse_fstec_cvss(vuln: dict[str, Any]) -> dict[str, float | None]:
+        """Parse CVSS vector strings from FSTEC records into base scores."""
+        scores: dict[str, float | None] = {}
+        vector_fields = {
+            "CVSS 2.0": "cvss_v2_0",
+            "CVSS 3.0": "cvss_v3_0",
+            "CVSS 4.0": "cvss_v4_0",
+        }
+        for field, key in vector_fields.items():
+            vector = vuln.get(field, "")
+            if not vector:
+                scores[key] = None
+                continue
+            try:
+                if field == "CVSS 2.0":
+                    scores[key] = float(cvss.CVSS2(vector).scores()[0])
+                elif field == "CVSS 3.0":
+                    scores[key] = float(cvss.CVSS3(vector).scores()[0])
+                elif field == "CVSS 4.0":
+                    scores[key] = float(cvss.CVSS4(vector).base_score)
+            except Exception:
+                scores[key] = None
+        return scores
+
     def extract_cnvd(self, vuln: dict[str, Any]) -> dict[str, Any]:
         vuln_id = vuln.get("number", "")
         vuln_title = vuln.get("title", "").strip()
@@ -201,6 +254,8 @@ class VulnExtractor:
                     extractor = self.extract_csaf
                 case "cnvd":
                     extractor = self.extract_cnvd
+                case "fstec":
+                    extractor = self.extract_fstec
                 case _:
                     print(f"No parser for this source {source}.")
                     continue
@@ -236,6 +291,7 @@ SOURCE_LABELS = {
     "csaf_cisco": "CSAF Cisco",
     "csaf_cisa": "CSAF CISA",
     "cnvd": "China National Vulnerability Database (CNVD)",
+    "fstec": "Russian Federal Service for Technical and Export Control (FSTEC/BDU)",
 }
 
 

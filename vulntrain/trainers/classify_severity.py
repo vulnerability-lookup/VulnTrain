@@ -248,7 +248,11 @@ def main():
         "--base-model",
         dest="base_model",
         default="distilbert-base-uncased",
-        choices=["distilbert-base-uncased", "roberta-base"],
+        choices=[
+            "distilbert-base-uncased",
+            "roberta-base",
+            "ai-forever/ruRoberta-large",
+        ],
         help="Base model to use.",
     )
     parser.add_argument(
