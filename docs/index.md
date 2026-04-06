@@ -7,9 +7,22 @@
 ## Presentation
 
 VulnTrain provides a set of tools to generate diverse AI-ready datasets and train models using comprehensive vulnerability data from [Vulnerability-Lookup](https://vulnerability.circl.lu).
-It leverages over one million JSON records from multiple advisory sources (CVE, GitHub advisories, CSAF, PySecDB, CNVD) to build severity classifiers, description generators, and CWE classifiers.
+It leverages over one million JSON records from multiple advisory sources to build severity classifiers, description generators, and CWE classifiers.
 
 Models and datasets are published to Hugging Face Hub under the [CIRCL](https://huggingface.co/CIRCL) organization.
+
+### Supported sources
+
+| Source | Language | Description |
+|--------|----------|-------------|
+| `cvelistv5` | English | CVE Program (enriched with vulnrichment and Fraunhofer FKIE) |
+| `github` | English | GitHub Security Advisories |
+| `pysec` | English | PySec advisories |
+| `csaf_redhat` | English | CSAF Red Hat |
+| `csaf_cisco` | English | CSAF Cisco |
+| `csaf_cisa` | English | CSAF CISA |
+| `cnvd` | Chinese | China National Vulnerability Database |
+| `fstec` | Russian | Russian Federal Service for Technical and Export Control (BDU) |
 
 ## Installation
 
@@ -25,15 +38,15 @@ Three types of commands are available:
 - **Model training**: Train models using the prepared datasets.
 - **Model validation**: Evaluate and compare trained models.
 
-For AMD Ryzen GPU:
+## Configuration
+
+Copy `vulntrain/config/conf_sample.py` to `vulntrain/config/conf.py` and fill in the Valkey connection details and tokens. Set the `VulnTrain_CONFIG` environment variable to point to your config file.
+
+For AMD ROCm GPU:
 
 ```bash
 pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/rocm6.4/
 ```
-
-## Configuration
-
-Copy `vulntrain/config/conf_sample.py` to `vulntrain/config/conf.py` and fill in the Valkey connection details and tokens. Set the `VulnTrain_CONFIG` environment variable to point to your config file.
 
 ## Datasets
 
@@ -78,17 +91,18 @@ vulntrain-dataset-generation --sources fstec --repo-id=CIRCL/Vulnerability-FSTEC
 The FSTEC dataset extracts CVSS base scores from vector strings (v2.0, v3.0, v4.0) and includes CVE cross-references when available.
 
 
-### Associating Git Fixes with Common Weakness Enumerations (CWEs)
+### CWE/patch dataset
+
+Generate a dataset associating Git fixes with Common Weakness Enumerations (CWEs) found in security advisories:
 
 ```bash
 python vulntrain/datasets/cwe-guesser-dataset.py --sources cvelistv5,github,pysec,csaf_redhat --repo-id=CIRCL/vulnerability-cwe-patch
 ```
 
 
-
 ## Model training
 
-### Training for severity classification
+### Severity classification
 
 Generate the model [CIRCL/vulnerability-severity-classification-roberta-base](https://huggingface.co/CIRCL/vulnerability-severity-classification-roberta-base):
 
@@ -110,44 +124,21 @@ Generate a Russian severity classifier using FSTEC data and [ruRoberta-large](ht
 vulntrain-train-severity-classification --base-model ai-forever/ruRoberta-large --dataset-id CIRCL/Vulnerability-FSTEC --repo-id CIRCL/vulnerability-severity-classification-russian-ruRoberta-large
 ```
 
-### Training for CWE classification
+### CWE classification
+
+Predict CWE classifications from vulnerability descriptions and associated patches:
 
 ```bash
-vulntrain-train-cwe-classification --base-model roberta-base --dataset-id CIRCL/vulnerability-cwe-patch --repo-id CIRCL/cwe-parent-vulnerability-classification-roberta-base 
+vulntrain-train-cwe-classification --base-model roberta-base --dataset-id CIRCL/vulnerability-cwe-patch --repo-id CIRCL/cwe-parent-vulnerability-classification-roberta-base
 ```
 
 
-### Training for text generation
+### Text generation
 
-For now we are using GPT-2 (AutoModelForCausalLM) or distilbert-base-uncased (AutoModelForMaskedLM).
-The goal is to generate text.
+Train a GPT-2 model to generate vulnerability descriptions:
 
 ```bash
-$ vulntrain-train-description-generation --base-model gpt2-xl --dataset-id CIRCL/vulnerability-scores --repo-id CIRCL/vulnerability-description-generation-gpt2-xl
-Dataset ID: CIRCL/vulnerability-scores
-Destination Hugging Face repository ID: CIRCL/vulnerability-description-generation-gpt2-xl
-Model will be saved to: results
-Starting the training process…
-[codecarbon WARNING @ 08:17:38] Multiple instances of codecarbon are allowed to run at the same time.
-[codecarbon INFO @ 08:17:38] [setup] RAM Tracking...
-[codecarbon INFO @ 08:17:38] [setup] CPU Tracking...
-[codecarbon INFO @ 08:17:40] CPU Model on constant consumption mode: Intel(R) Xeon(R) Platinum 8480+
-[codecarbon INFO @ 08:17:40] [setup] GPU Tracking...
-[codecarbon INFO @ 08:17:40] Tracking Nvidia GPU via pynvml
-[codecarbon INFO @ 08:17:40] >>> Tracker's metadata:
-[codecarbon INFO @ 08:17:40]   Platform system: Linux-6.8.0-88-generic-x86_64-with-glibc2.39
-[codecarbon INFO @ 08:17:40]   Python version: 3.12.3
-[codecarbon INFO @ 08:17:40]   CodeCarbon version: 2.8.4
-[codecarbon INFO @ 08:17:40]   Available RAM : 2015.335 GB
-[codecarbon INFO @ 08:17:40]   CPU count: 224
-[codecarbon INFO @ 08:17:40]   CPU model: Intel(R) Xeon(R) Platinum 8480+
-[codecarbon INFO @ 08:17:40]   GPU count: 2
-[codecarbon INFO @ 08:17:40]   GPU model: 2 x NVIDIA H100 NVL
-[codecarbon INFO @ 08:17:40] Emissions data (if any) will be saved to file /home/cedric/VulnTrain/emissions.csv
-Using CUDA (Nvidia GPU).
-...
-...
-...
+vulntrain-train-description-generation --base-model gpt2-xl --dataset-id CIRCL/vulnerability-scores --repo-id CIRCL/vulnerability-description-generation-gpt2-xl
 ```
 
 
@@ -166,35 +157,10 @@ python -m vulntrain.validators.severity_cnvd \
 
 ### Text generation
 
-It is possible to send prompts to a model trained for text generation (descriptions of vulnerabilities).
+Send prompts to a model trained for vulnerability description generation:
 
 ```bash
-$ vulntrain-validate-text-generation --help
-usage: vulntrain-validate-text-generation [-h] [--model MODEL] [--prompt PROMPT]
-
-Validate a text generation model for vulnerabilities.
-
-options:
-  -h, --help       show this help message and exit
-  --model MODEL    The model to use.
-  --prompt PROMPT  The prompt for the generator.
-```
-
-Example:
-
-```bash
-$ vulntrain-validate-text-generation --prompt "A new vulnerability in OpenSSL allows attackers to" --model CIRCL/vulnerability-description-generation-gpt2-large
-config.json: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 907/907 [00:00<00:00, 6.70MB/s]
-model.safetensors: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 498M/498M [00:12<00:00, 41.3MB/s]
-generation_config.json: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 119/119 [00:00<00:00, 1.63MB/s]
-tokenizer_config.json: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 556/556 [00:00<00:00, 4.01MB/s]
-vocab.json: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 798k/798k [00:00<00:00, 3.25MB/s]
-merges.txt: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 456k/456k [00:00<00:00, 5.58MB/s]
-tokenizer.json: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 3.56M/3.56M [00:00<00:00, 10.3MB/s]
-special_tokens_map.json: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 470/470 [00:00<00:00, 3.51MB/s]
-Device set to use cuda:0
-
-[{'generated_text': 'A new vulnerability in OpenSSL allows attackers to bypass the TLS 1.2.1 server-side certificate validation by using a specially crafted (but not necessarily signed) client certificate to connect to a server. This issue affects: OpenSSL 3.0 versions prior to 3.0.4.1. OpenSSL 2.0 versions prior to 2.0.0.43. OpenSSL 1.1 versions prior to 1.1.0.27. OpenSSL 1.0 versions prior to 1.0.1.22. OpenSSL 0.9.6 versions prior to 0.9.6i.7. OpenSSL 0.8.7 versions prior to 0.8.7p14. Fixed in OpenSSL 3.0.4.1 (Affected 3.0.0,3.0.1,3.0.2). Fixed in OpenSSL 2.0.0.43 (Affected 2.0.0.43). Fixed in OpenSSL 1.1.0.27 (Affected 1.1.0.26). Fixed in OpenSSL 1.0.1.22 (Affected 1.0.1.21). Fixed in OpenSSL 0.9.6i.7 (Affected 0'}]
+vulntrain-validate-text-generation --prompt "A new vulnerability in OpenSSL allows attackers to" --model CIRCL/vulnerability-description-generation-gpt2-large
 ```
 
 ## Citation
