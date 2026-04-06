@@ -69,6 +69,14 @@ vulntrain-dataset-generation --sources cnvd --repo-id=CIRCL/Vulnerability-CNVD
 The CNVD dataset includes a `cve_id` field cross-referencing CVE equivalents (~81% of entries).
 See the [dataset card](https://huggingface.co/datasets/CIRCL/Vulnerability-CNVD) for details on coverage, severity distribution, and known caveats.
 
+Example: Generate [CIRCL/Vulnerability-FSTEC](https://huggingface.co/datasets/CIRCL/Vulnerability-FSTEC) dataset (Russian Federal Service for Technical and Export Control / BDU)
+
+```bash
+vulntrain-dataset-generation --sources fstec --repo-id=CIRCL/Vulnerability-FSTEC
+```
+
+The FSTEC dataset extracts CVSS base scores from vector strings (v2.0, v3.0, v4.0) and includes CVE cross-references when available.
+
 
 ### Associating Git Fixes with Common Weakness Enumerations (CWEs)
 
@@ -95,6 +103,12 @@ vulntrain-train-severity-cnvd-classification --base-model hfl/chinese-macbert-ba
 ```
 
 The CNVD trainer uses a deduplicated train/test split to prevent data leakage and supports different loss strategies via `--class-weights` (`none`, `sqrt`, `balanced`, `focal`). Defaults to uniform loss. See the [improvements report](cnvd-severity-improvements.md) for details.
+
+Generate a Russian severity classifier using FSTEC data and [ruRoberta-large](https://huggingface.co/ai-forever/ruRoberta-large):
+
+```bash
+vulntrain-train-severity-classification --base-model ai-forever/ruRoberta-large --dataset-id CIRCL/Vulnerability-FSTEC --repo-id CIRCL/vulnerability-severity-classification-russian-ruRoberta-large
+```
 
 ### Training for CWE classification
 
