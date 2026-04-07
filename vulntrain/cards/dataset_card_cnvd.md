@@ -1,7 +1,7 @@
 ---
 language:
 - zh
-license: gpl-3.0
+license: cc-by-4.0
 tags:
 - vulnerability
 - cybersecurity
@@ -68,3 +68,10 @@ CNVD reuses boilerplate descriptions across different vulnerability IDs (product
 ## Related models
 
 - [CIRCL/vulnerability-severity-classification-chinese-macbert-base](https://huggingface.co/CIRCL/vulnerability-severity-classification-chinese-macbert-base) — severity classifier trained on this dataset
+
+## References
+
+- [Vulnerability-Lookup](https://vulnerability.circl.lu) — the vulnerability data source
+- [VulnTrain](https://github.com/vulnerability-lookup/VulnTrain) — training pipeline
+- [ML-Gateway](https://github.com/vulnerability-lookup/ML-Gateway) — inference API
+- [VLAI paper](https://arxiv.org/abs/2507.03607) — Bonhomme, C., Dulaunoy, A. (2025)

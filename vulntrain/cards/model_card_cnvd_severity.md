@@ -1,7 +1,7 @@
 ---
 language:
 - zh
-license: apache-2.0
+license: cc-by-4.0
 library_name: transformers
 tags:
 - text-classification
@@ -78,6 +78,7 @@ These limitations were identified through independent analysis in [VulnTrain#19]
 
 ## References
 
-- [Vulnerability-Lookup](https://vulnerability.circl.lu) - the vulnerability data source
-- [VulnTrain](https://github.com/vulnerability-lookup/VulnTrain) - training pipeline
-- [ML-Gateway](https://github.com/vulnerability-lookup/ML-Gateway) - inference API
+- [Vulnerability-Lookup](https://vulnerability.circl.lu) — the vulnerability data source
+- [VulnTrain](https://github.com/vulnerability-lookup/VulnTrain) — training pipeline
+- [ML-Gateway](https://github.com/vulnerability-lookup/ML-Gateway) — inference API
+- [VLAI paper](https://arxiv.org/abs/2507.03607) — Bonhomme, C., Dulaunoy, A. (2025)
