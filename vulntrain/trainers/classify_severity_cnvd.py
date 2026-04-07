@@ -190,6 +190,7 @@ def train(
     repo_id,
     model_save_dir="./vulnerability-classify",
     class_weights_mode="none",
+    push_card=True,
 ):
     dataset = load_dataset(dataset_id)
 
@@ -322,6 +323,9 @@ def train(
     trainer.push_to_hub()
     tokenizer.push_to_hub(repo_id)
 
+    if not push_card:
+        return
+
     # Generate and push model card with actual eval metrics
     eval_results = trainer.evaluate()
     test_labels = [
@@ -418,6 +422,13 @@ def main():
         choices=["none", "sqrt", "balanced", "focal"],
         help="Class weighting mode: none (uniform loss), sqrt (dampened), balanced (full inverse-frequency), focal (focal loss with alpha weights).",
     )
+    parser.add_argument(
+        "--no-card",
+        dest="no_card",
+        action="store_true",
+        default=False,
+        help="Skip pushing the model card to Hugging Face Hub.",
+    )
 
     args = parser.parse_args()
 
@@ -437,6 +448,7 @@ def main():
         args.repo_id,
         args.model_save_dir,
         class_weights_mode=args.class_weights_mode,
+        push_card=not args.no_card,
     )
 
 

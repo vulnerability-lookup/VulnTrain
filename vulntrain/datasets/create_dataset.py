@@ -358,6 +358,13 @@ def main():
     parser.add_argument(
         "--nb-rows", type=int, default=0, help="Number of rows in the dataset"
     )
+    parser.add_argument(
+        "--no-card",
+        dest="no_card",
+        action="store_true",
+        default=False,
+        help="Skip pushing the dataset card to Hugging Face Hub.",
+    )
 
     args = parser.parse_args()
 
@@ -380,6 +387,8 @@ def main():
             dataset_dict.push_to_hub(args.repo_id)
 
         # Push dataset card
+        if args.no_card:
+            return
         card_content = _generate_dataset_card(
             sources, vulns, dataset_dict, args.repo_id
         )
