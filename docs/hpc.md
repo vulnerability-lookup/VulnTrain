@@ -121,6 +121,10 @@ torchrun --nproc_per_node=$SLURM_NTASKS \
 
 ### Example of multi-node configuration
 
+{{< callout type="warning" >}}
+  The multi-node configuration is less reliable and has caused various issues in practice (NCCL timeouts, rank synchronization failures, inconsistent checkpoint saving across nodes). The single-node configuration above works well and is recommended unless you specifically need to scale beyond the GPUs available on a single node.
+{{< /callout >}}
+
 ```bash
 #!/bin/bash
 #SBATCH --job-name=vulntrain
