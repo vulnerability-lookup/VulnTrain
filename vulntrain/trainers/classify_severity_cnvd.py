@@ -19,6 +19,8 @@ from transformers import (
     TrainingArguments,
 )
 
+from vulntrain.utils import push_emissions_report
+
 # Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -311,7 +313,15 @@ def train(
     else:
         trainer = Trainer(**trainer_kwargs)
 
-    tracker = EmissionsTracker(project_name="VulnTrain", allow_multiple_runs=True)
+    # Save emissions data inside the model directory so it gets pushed to the
+    # Hub together with the model (default output_dir is the CWD, which is never
+    # uploaded).
+    tracker = EmissionsTracker(
+        project_name="VulnTrain",
+        output_dir=model_save_dir,
+        output_file="emissions.csv",
+        allow_multiple_runs=True,
+    )
     tracker.start()
     try:
         trainer.train()
@@ -322,6 +332,9 @@ def train(
 
     trainer.push_to_hub()
     tokenizer.push_to_hub(repo_id)
+
+    if push_emissions_report(model_save_dir, repo_id):
+        logger.info(f"Emissions report pushed to {repo_id}")
 
     if not push_card:
         return

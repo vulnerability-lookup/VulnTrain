@@ -16,6 +16,8 @@ from transformers import (
     TrainingArguments,
 )
 
+from vulntrain.utils import push_emissions_report
+
 """
 Automatically classify new vulnerabilities based on their descriptions,
 even if they don't have CVSS scores.
@@ -225,7 +227,15 @@ def train(
     # Train model
     tracker = None
     if codecarbon:
-        tracker = EmissionsTracker(project_name="VulnTrain", allow_multiple_runs=True)
+        # Save emissions data inside the model directory so it gets pushed to
+        # the Hub together with the model (default output_dir is the CWD, which
+        # is never uploaded).
+        tracker = EmissionsTracker(
+            project_name="VulnTrain",
+            output_dir=model_save_dir,
+            output_file="emissions.csv",
+            allow_multiple_runs=True,
+        )
         tracker.start()
     try:
         trainer.train()
@@ -238,6 +248,9 @@ def train(
     if push_to_hub:
         trainer.push_to_hub()
         tokenizer.push_to_hub(repo_id)
+
+        if tracker is not None and push_emissions_report(model_save_dir, repo_id):
+            logger.info(f"Emissions report pushed to {repo_id}")
 
 
 def main():

@@ -3,7 +3,7 @@ import shutil
 from pathlib import Path
 
 import torch
-from codecarbon import track_emissions
+from codecarbon import EmissionsTracker
 from datasets import load_dataset
 from transformers import (
     AutoModelForCausalLM,
@@ -13,6 +13,8 @@ from transformers import (
     Trainer,
     TrainingArguments,
 )
+
+from vulntrain.utils import push_emissions_report
 
 """
 Create a text generation model for descriptions of vulnerabilities.
@@ -38,7 +40,6 @@ def get_datasets(dataset_id, tokenizer):
     return tokenized_datasets.train_test_split(test_size=0.2)
 
 
-@track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(
     base_model, dataset_id, repo_id, model_save_dir="./vulnerability-description"
 ):
@@ -89,14 +90,28 @@ def train(
         data_collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
     )
 
+    # Save emissions data inside the model directory so it gets pushed to the
+    # Hub together with the model (default output_dir is the CWD, which is never
+    # uploaded).
+    tracker = EmissionsTracker(
+        project_name="VulnTrain",
+        output_dir=model_save_dir,
+        output_file="emissions.csv",
+        allow_multiple_runs=True,
+    )
+    tracker.start()
     try:
         trainer.train()
     finally:
+        tracker.stop()
         model.save_pretrained(model_save_dir)
         tokenizer.save_pretrained(model_save_dir)
 
     trainer.push_to_hub()
     tokenizer.push_to_hub(repo_id)
+
+    if push_emissions_report(model_save_dir, repo_id):
+        print(f"Emissions report pushed to {repo_id}")
 
 
 def main():

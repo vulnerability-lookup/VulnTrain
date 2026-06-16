@@ -2,7 +2,6 @@ import json
 import re
 
 import cvss
-
 from markdown_it import MarkdownIt
 from nltk.tokenize import sent_tokenize
 
@@ -206,3 +205,28 @@ def extract_cpe_csaf(data):
 
     # Print unique CPEs
     return sorted(set(cpe_list))
+
+
+def push_emissions_report(model_save_dir: str, repo_id: str) -> bool:
+    """Upload the CodeCarbon ``emissions.csv`` report to the Hugging Face Hub.
+
+    ``trainer.push_to_hub()`` uploads ``model_save_dir`` but ignores files it
+    does not recognise, so the emissions report is pushed explicitly.
+
+    Returns ``True`` if the report existed and was uploaded.
+    """
+    from pathlib import Path
+
+    emissions_file = Path(model_save_dir) / "emissions.csv"
+    if not emissions_file.exists():
+        return False
+
+    from huggingface_hub import HfApi
+
+    HfApi().upload_file(
+        path_or_fileobj=str(emissions_file),
+        path_in_repo="emissions.csv",
+        repo_id=repo_id,
+        commit_message="Add CodeCarbon emissions report",
+    )
+    return True

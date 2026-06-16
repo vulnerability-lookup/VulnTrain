@@ -10,7 +10,7 @@ from pathlib import Path
 import evaluate
 import numpy as np
 import torch
-from codecarbon import track_emissions
+from codecarbon import EmissionsTracker
 from datasets import load_dataset
 from sklearn.metrics import accuracy_score, f1_score
 from transformers import (
@@ -20,6 +20,8 @@ from transformers import (
     Trainer,
     TrainingArguments,
 )
+
+from vulntrain.utils import push_emissions_report
 
 accuracy = evaluate.load("accuracy")
 f1 = evaluate.load("f1", config_name="macro")
@@ -62,7 +64,6 @@ class WeightedTrainer(Trainer):
         return (loss, outputs) if return_outputs else loss
 
 
-@track_emissions(project_name="VulnTrain", allow_multiple_runs=True)
 def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-classify"):
     dataset = load_dataset(dataset_id)
     dataset = dataset["train"].filter(lambda x: x.get("cwe") and len(x["cwe"]) > 0)
@@ -179,9 +180,20 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         class_weights=class_weights,
     )
 
+    # Save emissions data inside the model directory so it gets pushed to the
+    # Hub together with the model (default output_dir is the CWD, which is never
+    # uploaded).
+    tracker = EmissionsTracker(
+        project_name="VulnTrain",
+        output_dir=model_save_dir,
+        output_file="emissions.csv",
+        allow_multiple_runs=True,
+    )
+    tracker.start()
     try:
         trainer.train()
     finally:
+        tracker.stop()
         model.save_pretrained(model_save_dir)
         tokenizer.save_pretrained(model_save_dir)
 
@@ -199,6 +211,9 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
 
     trainer.push_to_hub(repo_id)
     tokenizer.push_to_hub(repo_id)
+
+    if push_emissions_report(model_save_dir, repo_id):
+        logger.info(f"Emissions report pushed to {repo_id}")
 
 
 def main():
