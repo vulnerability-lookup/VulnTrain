@@ -143,6 +143,15 @@ class AnthropicBackend:
         return labels
 
 
+def _read_ollama_error(error: urllib.error.HTTPError) -> str:
+    """Extract Ollama's JSON error message from an HTTPError body."""
+    try:
+        body = json.loads(error.read().decode("utf-8"))
+        return str(body.get("error", body))
+    except (ValueError, OSError):
+        return error.reason if isinstance(error.reason, str) else str(error)
+
+
 class OllamaBackend:
     """Label CVEs with a local model served by Ollama (no API key needed).
 
@@ -186,6 +195,23 @@ class OllamaBackend:
                     data = json.load(resp)
                 content = data.get("message", {}).get("content", "")
                 return AttackLabels.model_validate_json(content)
+            except urllib.error.HTTPError as e:
+                # 4xx are configuration errors (model not pulled, bad request)
+                # — the same call will fail for every CVE, so fail fast with
+                # Ollama's own message rather than retrying.
+                detail = _read_ollama_error(e)
+                if 400 <= e.code < 500:
+                    raise SystemExit(
+                        f"Ollama returned HTTP {e.code} for model "
+                        f"'{self.model}': {detail}\n"
+                        f"Check the model is pulled (`ollama list`; "
+                        f"`ollama pull {self.model}`) and reachable at "
+                        f"{self.base_url}."
+                    ) from e
+                logger.warning(
+                    f"[{attempt}/{self.MAX_ATTEMPTS}] Ollama HTTP {e.code}: {detail}"
+                )
+                time.sleep(2**attempt)
             except (ValidationError, json.JSONDecodeError) as e:
                 logger.warning(
                     f"[{attempt}/{self.MAX_ATTEMPTS}] Model returned invalid "
