@@ -2,32 +2,38 @@
 (Phase 2).
 
 The hand-curated CTID gold set (see docs/attack-techniques-dataset.md) covers
-only ~1,200 CVEs. This script uses Claude to label additional CVEs following
+only ~1,200 CVEs. This script uses an LLM to label additional CVEs following
 the same "Mapping ATT&CK to CVE for Impact" methodology, so the labels stay
 schema-compatible with the gold set.
+
+Two backends:
+
+- ``anthropic``: Claude via the Anthropic API (requires ``ANTHROPIC_API_KEY``).
+- ``ollama``: any local model served by an Ollama instance (e.g. Qwen), using
+  Ollama structured outputs — no API key or per-token cost.
 
 Two modes, and you must run them in order:
 
 - ``validate``: label a held-out slice of the *gold* set and measure agreement
   (precision/recall/F1) between the model and the analysts. This is the gate —
-  do not trust expansion until the agreement is acceptable.
+  do not trust expansion until the agreement is acceptable. Run it once per
+  backend/model you consider.
 - ``expand``: label a sample of unlabeled CVEs and write a dataset with
   ``label_source = ["llm"]``. Merge with the gold set downstream, keeping the
   provenance column so consumers can always filter back to gold-only.
-
-Requires Anthropic API credentials (``ANTHROPIC_API_KEY`` or an ``ant auth
-login`` profile) — the labeling itself is not run in CI.
 """
 
 import argparse
 import json
 import logging
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any, Optional
 
 from datasets import Dataset, DatasetDict, load_dataset
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from vulntrain.datasets.attack_guesser_dataset import (
     ENTERPRISE_ATTACK_STIX_URL,
@@ -39,7 +45,10 @@ from vulntrain.trainers.attack_guesser import collapse_subtechnique
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "claude-opus-4-8"
+DEFAULT_MODELS = {
+    "anthropic": "claude-opus-4-8",
+    "ollama": "qwen3",
+}
 
 METHODOLOGY = """\
 You map software vulnerabilities (CVEs) to MITRE ATT&CK (Enterprise) techniques \
@@ -84,6 +93,123 @@ class AttackLabels(BaseModel):
     secondary_impact: list[str] = Field(
         default_factory=list, description="ATT&CK technique IDs, possibly empty."
     )
+
+
+# ---------------------------------------------------------------------
+# Backends
+# ---------------------------------------------------------------------
+
+
+class AnthropicBackend:
+    """Label CVEs with Claude via the Anthropic API.
+
+    The system prompt is sent as a single cacheable block, so prompt caching
+    makes all but the first request cheap.
+    """
+
+    def __init__(self, model: str, system_text: str):
+        try:
+            import anthropic
+        except ImportError as e:
+            raise SystemExit(
+                "The 'anthropic' backend requires the anthropic SDK. Install it "
+                "with `poetry install --extras anthropic`, or use "
+                "`--backend ollama` for a local model."
+            ) from e
+
+        self.client = anthropic.Anthropic()
+        self.model = model
+        self.system_blocks = [
+            {
+                "type": "text",
+                "text": system_text,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+
+    def label(self, user_text: str) -> Optional[AttackLabels]:
+        response = self.client.messages.parse(
+            model=self.model,
+            max_tokens=4000,
+            thinking={"type": "adaptive"},
+            system=self.system_blocks,
+            messages=[{"role": "user", "content": user_text}],
+            output_format=AttackLabels,
+        )
+        if getattr(response, "stop_reason", None) == "refusal":
+            logger.warning("Model refused to label a CVE; skipping")
+            return None
+        labels: AttackLabels = response.parsed_output
+        return labels
+
+
+class OllamaBackend:
+    """Label CVEs with a local model served by Ollama (no API key needed).
+
+    Uses Ollama structured outputs: the JSON schema of AttackLabels is passed
+    as the ``format`` parameter, constraining the model's output. Ollama's
+    prompt prefix caching keeps the repeated system prompt cheap across
+    consecutive requests.
+    """
+
+    MAX_ATTEMPTS = 3
+
+    def __init__(self, model: str, system_text: str, base_url: str, timeout: int):
+        self.model = model
+        self.system_text = system_text
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
+
+    def label(self, user_text: str) -> Optional[AttackLabels]:
+        payload = json.dumps(
+            {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": self.system_text},
+                    {"role": "user", "content": user_text},
+                ],
+                "format": AttackLabels.model_json_schema(),
+                "stream": False,
+                "options": {"temperature": 0},
+            }
+        ).encode("utf-8")
+
+        for attempt in range(1, self.MAX_ATTEMPTS + 1):
+            request = urllib.request.Request(
+                f"{self.base_url}/api/chat",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as resp:
+                    data = json.load(resp)
+                content = data.get("message", {}).get("content", "")
+                return AttackLabels.model_validate_json(content)
+            except (ValidationError, json.JSONDecodeError) as e:
+                logger.warning(
+                    f"[{attempt}/{self.MAX_ATTEMPTS}] Model returned invalid "
+                    f"structured output: {e}"
+                )
+            except (urllib.error.URLError, TimeoutError) as e:
+                logger.warning(
+                    f"[{attempt}/{self.MAX_ATTEMPTS}] Ollama request failed: {e}"
+                )
+                time.sleep(2**attempt)
+        return None
+
+
+def make_backend(args: argparse.Namespace, system_text: str) -> Any:
+    if args.backend == "ollama":
+        return OllamaBackend(
+            args.model, system_text, args.ollama_url, args.ollama_timeout
+        )
+    return AnthropicBackend(args.model, system_text)
+
+
+# ---------------------------------------------------------------------
+# Prompt construction
+# ---------------------------------------------------------------------
 
 
 def load_technique_catalog(cache_dir: Path) -> dict[str, str]:
@@ -133,19 +259,22 @@ def format_few_shot(examples: list[dict[str, Any]]) -> str:
     return "\n\n".join(blocks)
 
 
-def build_system_blocks(
+def build_system_text(
     catalog: dict[str, str], few_shot: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
-    """System prompt as a single cacheable block: methodology, the full
-    technique catalog, and few-shot gold examples. Identical across every CVE,
-    so prompt caching makes all but the first request cheap."""
-    text = (
+) -> str:
+    """System prompt shared by all backends: methodology, the full technique
+    catalog, and few-shot gold examples. Identical across every CVE."""
+    return (
         f"{METHODOLOGY}\n\n"
         f"ATT&CK technique catalog (id name):\n{format_catalog(catalog)}\n\n"
         f"Worked examples from analyst-curated mappings:\n"
         f"{format_few_shot(few_shot)}"
     )
-    return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
+
+
+# ---------------------------------------------------------------------
+# Labeling and scoring
+# ---------------------------------------------------------------------
 
 
 def clean_techniques(
@@ -163,28 +292,16 @@ def clean_techniques(
 
 
 def label_cve(
-    client: Any,
-    system_blocks: list[dict[str, Any]],
+    backend: Any,
     title: str,
     description: str,
     catalog: dict[str, str],
-    model: str,
 ) -> Optional[dict[str, Any]]:
-    """Label one CVE. Returns None on a safety refusal (logged and skipped)."""
-    user_text = f"{title}\n{description}".strip()
-    response = client.messages.parse(
-        model=model,
-        max_tokens=4000,
-        thinking={"type": "adaptive"},
-        system=system_blocks,
-        messages=[{"role": "user", "content": user_text}],
-        output_format=AttackLabels,
-    )
-    if getattr(response, "stop_reason", None) == "refusal":
-        logger.warning("Model refused to label a CVE; skipping")
+    """Label one CVE. Returns None when the backend produced no usable labels."""
+    labels = backend.label(f"{title}\n{description}".strip())
+    if labels is None:
         return None
 
-    labels: AttackLabels = response.parsed_output
     result: dict[str, Any] = {}
     all_dropped: list[str] = []
     for slot in ("exploitation_techniques", "primary_impact", "secondary_impact"):
@@ -264,27 +381,33 @@ def select_few_shot(
     return chosen
 
 
-def run_validate(args: argparse.Namespace, client: Any, catalog: dict[str, str]) -> None:
+# ---------------------------------------------------------------------
+# Modes
+# ---------------------------------------------------------------------
+
+
+def run_validate(
+    args: argparse.Namespace, catalog: dict[str, str]
+) -> None:
     dataset = load_dataset(args.gold_dataset)
     held_out = list(dataset[args.validate_split])
     if args.limit:
         held_out = held_out[: args.limit]
     held_out_ids = {row["id"] for row in held_out}
-    few_shot = select_few_shot(
-        list(dataset["train"]), held_out_ids, args.few_shot
-    )
-    system_blocks = build_system_blocks(catalog, few_shot)
+    few_shot = select_few_shot(list(dataset["train"]), held_out_ids, args.few_shot)
+    backend = make_backend(args, build_system_text(catalog, few_shot))
     logger.info(
-        f"Validating on {len(held_out)} gold CVEs from the "
-        f"'{args.validate_split}' split, {len(few_shot)} few-shot examples"
+        f"Validating {args.backend}/{args.model} on {len(held_out)} gold CVEs "
+        f"from the '{args.validate_split}' split, {len(few_shot)} few-shot examples"
     )
 
     predictions: list[list[str]] = []
     gold: list[list[str]] = []
+    failures = 0
     for i, row in enumerate(held_out, start=1):
-        result = label_cve(
-            client, system_blocks, row["title"], row["description"], catalog, args.model
-        )
+        result = label_cve(backend, row["title"], row["description"], catalog)
+        if result is None:
+            failures += 1
         predictions.append(result["techniques"] if result else [])
         gold.append(row["techniques"])
         if i % 10 == 0:
@@ -292,10 +415,15 @@ def run_validate(args: argparse.Namespace, client: Any, catalog: dict[str, str])
 
     metrics = score_agreement(predictions, gold)
     print(f"\n{'=' * 60}")
-    print(f"LLM-vs-gold agreement ({args.model}) on {len(held_out)} CVEs")
+    print(
+        f"LLM-vs-gold agreement ({args.backend}/{args.model}) "
+        f"on {len(held_out)} CVEs"
+    )
     print("(parent-technique level, matching the trainer's granularity)")
     for name, value in metrics.items():
         print(f"  {name}: {value:.4f}")
+    if failures:
+        print(f"  labeling failures (counted as empty): {failures}")
     print(f"{'=' * 60}\n")
     print(
         "Guidance: only trust `expand` output if this agreement is comparable "
@@ -304,11 +432,11 @@ def run_validate(args: argparse.Namespace, client: Any, catalog: dict[str, str])
     )
 
 
-def run_expand(args: argparse.Namespace, client: Any, catalog: dict[str, str]) -> None:
+def run_expand(args: argparse.Namespace, catalog: dict[str, str]) -> None:
     gold = load_dataset(args.gold_dataset)
     gold_ids = {row for split in gold.values() for row in split["id"]}
     few_shot = select_few_shot(list(gold["train"]), set(), args.few_shot)
-    system_blocks = build_system_blocks(catalog, few_shot)
+    backend = make_backend(args, build_system_text(catalog, few_shot))
 
     if args.input_ids_file:
         target_ids = [
@@ -323,7 +451,7 @@ def run_expand(args: argparse.Namespace, client: Any, catalog: dict[str, str]) -
             for vid in source["id"]
             if vid.startswith("CVE-") and vid not in gold_ids
         ][: args.sample_n]
-    logger.info(f"Expanding: labeling {len(target_ids)} CVEs")
+    logger.info(f"Expanding: labeling {len(target_ids)} CVEs with {args.backend}/{args.model}")
 
     descriptions = _load_descriptions(args.description_dataset, set(target_ids))
     rows = []
@@ -331,7 +459,7 @@ def run_expand(args: argparse.Namespace, client: Any, catalog: dict[str, str]) -
         if cve_id not in descriptions:
             continue
         title, description = descriptions[cve_id]
-        result = label_cve(client, system_blocks, title, description, catalog, args.model)
+        result = label_cve(backend, title, description, catalog)
         if not result or not result["techniques"]:
             continue
         rows.append(
@@ -346,7 +474,7 @@ def run_expand(args: argparse.Namespace, client: Any, catalog: dict[str, str]) -
                 "techniques_derived": [],
                 "label_sources": ["llm"],
                 "attack_version": args.attack_version,
-                "llm_model": args.model,
+                "llm_model": f"{args.backend}/{args.model}",
                 "llm_comment": result["comment"],
             }
         )
@@ -363,7 +491,10 @@ def run_expand(args: argparse.Namespace, client: Any, catalog: dict[str, str]) -
     if args.push:
         dataset.push_to_hub(
             args.repo_id,
-            commit_message=f"[DATASET] LLM-labeled CVE->ATT&CK ({len(rows)} CVEs, {args.model})",
+            commit_message=(
+                f"[DATASET] LLM-labeled CVE->ATT&CK "
+                f"({len(rows)} CVEs, {args.backend}/{args.model})"
+            ),
             private=False,
         )
         logger.info(f"Pushed to {args.repo_id}")
@@ -395,9 +526,30 @@ def main() -> None:
         "'expand' labels new CVEs.",
     )
     parser.add_argument(
+        "--backend",
+        choices=["anthropic", "ollama"],
+        default="anthropic",
+        help="'anthropic' uses Claude via the Anthropic API (needs "
+        "ANTHROPIC_API_KEY); 'ollama' uses a local model served by Ollama "
+        "(no API key).",
+    )
+    parser.add_argument(
         "--model",
-        default=DEFAULT_MODEL,
-        help="Anthropic model ID used for labeling.",
+        default="",
+        help="Model to label with. Defaults per backend: "
+        f"{DEFAULT_MODELS['anthropic']} (anthropic), "
+        f"{DEFAULT_MODELS['ollama']} (ollama — e.g. qwen3:32b).",
+    )
+    parser.add_argument(
+        "--ollama-url",
+        default="http://localhost:11434",
+        help="Base URL of the Ollama instance (ollama backend).",
+    )
+    parser.add_argument(
+        "--ollama-timeout",
+        type=int,
+        default=600,
+        help="Per-request timeout in seconds (ollama backend).",
     )
     parser.add_argument(
         "--gold-dataset",
@@ -470,15 +622,15 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    import anthropic
+    if not args.model:
+        args.model = DEFAULT_MODELS[args.backend]
 
-    client = anthropic.Anthropic()
     catalog = load_technique_catalog(Path(args.cache_dir).expanduser())
 
     if args.mode == "validate":
-        run_validate(args, client, catalog)
+        run_validate(args, catalog)
     else:
-        run_expand(args, client, catalog)
+        run_expand(args, catalog)
 
 
 if __name__ == "__main__":

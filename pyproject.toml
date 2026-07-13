@@ -28,9 +28,13 @@ dependencies = [
     "codecarbon (>=3.2.1,<4.0.0)",
     "scikit-learn (>=1.8.0,<2.0.0)",
     "markdown-it-py (>=3.0.0,<4.0.0)",
-    "cvss (>=3.6,<4.0)",
-    "anthropic (>=0.116.0,<0.117.0)"
+    "cvss (>=3.6,<4.0)"
 ]
+
+[project.optional-dependencies]
+# Only needed for the Anthropic (Claude) backend of the ATT&CK LLM labeler.
+# The default Ollama backend uses the standard library only.
+anthropic = ["anthropic (>=0.116.0,<0.117.0)"]
 
 
 [project.urls]

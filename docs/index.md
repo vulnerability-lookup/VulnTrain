@@ -129,17 +129,23 @@ kept as a separate weak column rather than used as training targets), the
 dataset schema, and known limitations.
 
 To grow the curated ~1,200-CVE gold set, `vulntrain-dataset-attack-llm-labeling`
-labels additional CVEs with Claude following the same CTID methodology. It
-requires an Anthropic API key (create one at
-[platform.claude.com](https://platform.claude.com) under Settings → API Keys),
-exported as `ANTHROPIC_API_KEY` before running the command. Always run the
+labels additional CVEs with an LLM following the same CTID methodology. It
+supports two backends: a local model served by [Ollama](https://ollama.com)
+(`--backend ollama`, no API key or per-token cost — e.g. Qwen on your own GPU
+server) or Claude via the Anthropic API (`--backend anthropic`, needs
+`ANTHROPIC_API_KEY` from [platform.claude.com](https://platform.claude.com);
+a Claude Max subscription does not include API access). Always run the
 validation mode first — it measures agreement against the gold set — before
 scaling up:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...   # required, from platform.claude.com
-vulntrain-dataset-attack-llm-labeling --mode validate --validate-split test
-vulntrain-dataset-attack-llm-labeling --mode expand --sample-n 2000 --push --repo-id=CIRCL/vulnerability-attack-techniques-llm
+# Local Ollama model (no API key):
+vulntrain-dataset-attack-llm-labeling --mode validate --backend ollama --model qwen3:32b
+vulntrain-dataset-attack-llm-labeling --mode expand  --backend ollama --model qwen3:32b --sample-n 2000 --push --repo-id=CIRCL/vulnerability-attack-techniques-llm
+
+# Or Claude via the Anthropic API:
+export ANTHROPIC_API_KEY=sk-ant-...
+vulntrain-dataset-attack-llm-labeling --mode validate --backend anthropic
 ```
 
 

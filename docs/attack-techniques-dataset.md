@@ -28,12 +28,11 @@ vulntrain-validate-attack-classification --method similarity
 vulntrain-validate-attack-classification --method classifier \
   --model CIRCL/vulnerability-attack-technique-classification-roberta-base
 
-# 4. Grow the dataset with LLM-assisted labeling (needs ANTHROPIC_API_KEY);
-#    validate agreement against the gold set BEFORE expanding
-export ANTHROPIC_API_KEY=sk-ant-...
-vulntrain-dataset-attack-llm-labeling --mode validate --validate-split test
-vulntrain-dataset-attack-llm-labeling --mode expand --sample-n 2000 \
-  --push --repo-id CIRCL/vulnerability-attack-techniques-llm
+# 4. Grow the dataset with LLM-assisted labeling — local Ollama model (no
+#    API key) or Claude; validate agreement against the gold set BEFORE expanding
+vulntrain-dataset-attack-llm-labeling --mode validate --backend ollama --model qwen3:32b
+vulntrain-dataset-attack-llm-labeling --mode expand --backend ollama --model qwen3:32b \
+  --sample-n 2000 --push --repo-id CIRCL/vulnerability-attack-techniques-llm
 
 # 5. Retrain on gold + LLM-labeled data and re-run step 3
 ```
@@ -238,17 +237,32 @@ is what label expansion targets.
 
 `vulntrain/datasets/attack_llm_labeler.py`
 (`vulntrain-dataset-attack-llm-labeling`) grows the training set beyond the
-~1,200 curated CVEs by having Claude label additional CVEs with the **same**
+~1,200 curated CVEs by having an LLM label additional CVEs with the **same**
 CTID methodology (exploitation technique / primary impact / secondary
-impact), so the output stays schema-compatible with the gold set. Labeling
-requires an Anthropic API key exported as `ANTHROPIC_API_KEY` before running
-the command (see the commands below), and is not run in CI.
+impact), so the output stays schema-compatible with the gold set.
+
+Two backends, selected with `--backend`:
+
+- `ollama` (no API key, no per-token cost): labels with a local model served
+  by an [Ollama](https://ollama.com) instance — e.g. Qwen — using Ollama
+  structured outputs. Set `--model` (default `qwen3`; e.g. `qwen3:32b`) and,
+  if the server is not local, `--ollama-url`.
+- `anthropic`: labels with Claude via the Anthropic API. Requires an API key
+  exported as `ANTHROPIC_API_KEY` (create one at
+  [platform.claude.com](https://platform.claude.com); note that a Claude Max
+  subscription does **not** include API access — it is billed separately).
 
 The system prompt is identical for every CVE — the methodology, the full
 active enterprise ATT&CK technique catalog (from the STIX data), and a set
-of diverse few-shot examples drawn from the gold set — so prompt caching
-makes all but the first request cheap. Claude returns a structured mapping;
-hallucinated or out-of-catalog technique IDs are dropped.
+of diverse few-shot examples drawn from the gold set — so both backends'
+prompt-prefix caching keeps all but the first request cheap. The model
+returns a structured mapping (constrained to the label schema on both
+backends); hallucinated or out-of-catalog technique IDs are dropped, and the
+Ollama backend retries on malformed output.
+
+The `validate` gate matters most with a local model: it tells you
+objectively whether the chosen Ollama model agrees with the analysts well
+enough to trust, or whether the gap justifies paying for the API.
 
 **Validate before trusting expansion.** Run the `validate` mode first: it
 labels a held-out slice of the *gold* set and reports agreement
@@ -256,19 +270,23 @@ labels a held-out slice of the *gold* set and reports agreement
 the analysts.
 
 ```bash
+# Local model via Ollama (no API key):
+vulntrain-dataset-attack-llm-labeling --mode validate --backend ollama --model qwen3:32b
+
+# Or Claude via the Anthropic API:
 export ANTHROPIC_API_KEY=sk-ant-...
-vulntrain-dataset-attack-llm-labeling --mode validate --validate-split test
+vulntrain-dataset-attack-llm-labeling --mode validate --backend anthropic
 ```
 
 Only if that agreement is comparable to inter-analyst agreement on ATT&CK
 mappings should you scale up. The `expand` mode then labels a sample of
 CVEs (from `CIRCL/vulnerability-scores` by default, excluding gold CVEs) and
-writes a dataset with `label_source = ["llm"]` plus the model ID and its
-justification comment per row:
+writes a dataset with `label_source = ["llm"]` plus the backend/model ID and
+its justification comment per row:
 
 ```bash
-vulntrain-dataset-attack-llm-labeling --mode expand --sample-n 2000 \
-  --output-dir ./attack-llm --push --repo-id CIRCL/vulnerability-attack-techniques-llm
+vulntrain-dataset-attack-llm-labeling --mode expand --backend ollama --model qwen3:32b \
+  --sample-n 2000 --output-dir ./attack-llm --push --repo-id CIRCL/vulnerability-attack-techniques-llm
 ```
 
 Keep the LLM-labeled rows in a separate provenance tier: merge them with the
