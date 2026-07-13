@@ -11,6 +11,53 @@ behavior to expect and detect*. Very few public models cover that gap.
 
 ## Workflow at a glance
 
+```mermaid
+flowchart TD
+    classDef data fill:#e8f0fe,stroke:#4285f4,color:#000;
+    classDef tool fill:#fff4e5,stroke:#f9a825,color:#000;
+    classDef gate fill:#fde7e9,stroke:#d93025,color:#000;
+    classDef out fill:#e6f4ea,stroke:#188038,color:#000;
+
+    subgraph P1["Phase 1 — build the gold dataset"]
+        CTID["MITRE CTID gold mappings<br/>attack_to_cve + KEV Explorer"]:::data
+        STIX["Enterprise ATT&CK STIX<br/>catalog + revoked-by"]:::data
+        SCORES["CIRCL/vulnerability-scores<br/>descriptions"]:::data
+        C2C["CVE2CAPEC<br/>weak derived labels"]:::data
+        GEN["attack-generation<br/>normalize IDs · join · merge"]:::tool
+        GOLD[("CIRCL/vulnerability-attack-techniques<br/>1,207 gold rows")]:::out
+        CTID --> GEN
+        STIX --> GEN
+        SCORES --> GEN
+        C2C -. techniques_derived .-> GEN
+        GEN --> GOLD
+    end
+
+    subgraph P2A["Phase 2 — train & evaluate"]
+        TRAIN["train-attack-classification<br/>roberta-base · multi-label BCE"]:::tool
+        MODEL[("…-classification-roberta-base")]:::out
+        BASE["zero-shot similarity baseline<br/>SMET-style"]:::tool
+        EVAL{"beats baseline?<br/>recall@k / MRR"}:::gate
+        TRAIN --> MODEL --> EVAL
+        BASE --> EVAL
+    end
+
+    subgraph P2B["Phase 2 — LLM label expansion"]
+        VAL{"validate: LLM vs gold<br/>agreement good enough?"}:::gate
+        EXP["expand: label sampled CVEs<br/>Ollama (Qwen) or Claude"]:::tool
+        LLMDS[("…-llm-&lt;model&gt;<br/>label_sources = [llm]")]:::out
+        STOP["stronger model,<br/>or keep gold-only"]:::gate
+        VAL -- yes --> EXP --> LLMDS
+        VAL -- no --> STOP
+    end
+
+    GOLD --> TRAIN
+    GOLD --> VAL
+    LLMDS --> MERGE["merge gold + LLM labels"]:::tool
+    GOLD --> MERGE
+    MERGE -. retrain .-> TRAIN
+    EVAL -- passes --> DONE(["published model"]):::out
+```
+
 The full pipeline, in the order the commands are meant to be run (each step
 is detailed in its own section below):
 

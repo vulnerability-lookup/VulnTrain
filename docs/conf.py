@@ -14,7 +14,11 @@ release = "3.1.0"
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = ["myst_parser"]
+extensions = ["myst_parser", "sphinxcontrib.mermaid"]
+
+# Let ```mermaid fenced code blocks render as diagrams in Sphinx (they already
+# render natively on GitHub), so one source works in both.
+myst_fence_as_directive = ["mermaid"]
 
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]

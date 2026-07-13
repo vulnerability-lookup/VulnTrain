@@ -85,6 +85,7 @@ include = [
 sphinx = "^8.2.3"
 sphinx-book-theme = "^1.1.4"
 myst-parser = "^4.0.1"
+sphinxcontrib-mermaid = "^2.0.3"
 
 
 [tool.poetry.group.docs]
