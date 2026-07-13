@@ -99,6 +99,10 @@ Generate a dataset associating Git fixes with Common Weakness Enumerations (CWEs
 python vulntrain/datasets/cwe-guesser-dataset.py --sources cvelistv5,github,pysec,csaf_redhat --repo-id=CIRCL/vulnerability-cwe-patch
 ```
 
+By default the script appends to the existing dataset on the Hub. Pass
+`--from-scratch` to rebuild it entirely (required when the dataset schema
+changes).
+
 
 ### CVE/ATT&CK techniques dataset
 
@@ -141,11 +145,22 @@ vulntrain-train-severity-classification --base-model ai-forever/ruRoberta-large 
 
 ### CWE classification
 
-Predict CWE classifications from vulnerability descriptions and associated patches:
+Predict CWE classifications from vulnerability descriptions and associated patches.
+The recommended base model is [ModernBERT-base](https://huggingface.co/answerdotai/ModernBERT-base),
+whose 8192-token context window can take the full patches into account:
 
 ```bash
-vulntrain-train-cwe-classification --base-model roberta-base --dataset-id CIRCL/vulnerability-cwe-patch --repo-id CIRCL/cwe-parent-vulnerability-classification-roberta-base
+vulntrain-train-cwe-classification --base-model answerdotai/ModernBERT-base --dataset-id CIRCL/vulnerability-cwe-patch --repo-id CIRCL/vulnerability-cwe-classification-modernbert-base --batch-size 8
 ```
+
+Shorter-context models such as `roberta-base` also work (truncation adapts to
+the model's maximum input length, overridable with `--max-length`). The loss
+strategy for class imbalance can be selected with `--class-weights` (`none`,
+`sqrt`, `balanced`, `focal`; defaults to `balanced`), and `--epochs`,
+`--learning-rate` and `--batch-size` control the schedule. Reported metrics
+include top-3/top-5 accuracy, since the model is used to suggest candidate
+CWEs. See the [improvements report](cwe-classification-improvements.md) for
+the reasoning behind these options.
 
 The trainer maps each CWE of the dataset to an ancestor CWE via
 `vulntrain/data/deep_child_to_ancestor.json`, built so that every training

@@ -12,6 +12,7 @@ from aiohttp import ClientSession, ClientTimeout
 from datasets import (  # add this at the top with your imports
     Dataset,
     DatasetDict,
+    concatenate_datasets,
     load_dataset,
 )
 
@@ -96,10 +97,17 @@ HUGGINGFACE_BATCH = 5000000
 
 
 class VulnExtractor:
-    def __init__(self, sources: list[str], repo_id: str, nb_rows: int):
+    def __init__(
+        self,
+        sources: list[str],
+        repo_id: str,
+        nb_rows: int,
+        from_scratch: bool = False,
+    ):
         self.sources = sources
         self.repo_id = repo_id
         self.nb_rows = nb_rows
+        self.from_scratch = from_scratch
         self.semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
         self.timeout = ClientTimeout(total=DEFAULT_TIMEOUT)
 
@@ -125,33 +133,41 @@ class VulnExtractor:
         )
 
         # Load the existing dataset (if any) from the hub
-        try:
-            existing = load_dataset(self.repo_id)
+        if self.from_scratch:
             log(
                 "info",
-                f"Loaded existing dataset with {len(existing['train'])} train / {len(existing['test'])} test samples.",
-                display=True,
-            )
-
-            # Concatenate old + new data
-            combined_train = Dataset.from_dict(existing["train"].to_dict()).concatenate(
-                new_dataset_dict["train"]
-            )
-            combined_test = Dataset.from_dict(existing["test"].to_dict()).concatenate(
-                new_dataset_dict["test"]
-            )
-            final_dataset_dict = DatasetDict(
-                {"train": combined_train, "test": combined_test}
-            )
-
-        except Exception:
-            # If first push
-            log(
-                "info",
-                "No existing dataset found on the Hub — creating a new one.",
+                "Rebuilding dataset from scratch — ignoring existing data on the Hub.",
                 display=True,
             )
             final_dataset_dict = new_dataset_dict
+        else:
+            try:
+                existing = load_dataset(self.repo_id)
+                log(
+                    "info",
+                    f"Loaded existing dataset with {len(existing['train'])} train / {len(existing['test'])} test samples.",
+                    display=True,
+                )
+
+                # Concatenate old + new data
+                combined_train = concatenate_datasets(
+                    [existing["train"], new_dataset_dict["train"]]
+                )
+                combined_test = concatenate_datasets(
+                    [existing["test"], new_dataset_dict["test"]]
+                )
+                final_dataset_dict = DatasetDict(
+                    {"train": combined_train, "test": combined_test}
+                )
+
+            except Exception:
+                # If first push
+                log(
+                    "info",
+                    "No existing dataset found on the Hub — creating a new one.",
+                    display=True,
+                )
+                final_dataset_dict = new_dataset_dict
 
         # Push the updated dataset to the same repo (one consistent dataset)
         final_dataset_dict.push_to_hub(
@@ -162,6 +178,9 @@ class VulnExtractor:
         )
 
         print(final_dataset_dict)
+
+        # Later pushes of the same run must append to what was just pushed.
+        self.from_scratch = False
 
         # Clear temp to save memory
         del new_dataset, new_dataset_dict, final_dataset_dict
@@ -533,9 +552,17 @@ def main():
     parser.add_argument(
         "--nb-rows", type=int, default=0, help="Max vulnerabilities to process (0=all)"
     )
+    parser.add_argument(
+        "--from-scratch",
+        action="store_true",
+        help="Rebuild the Hub dataset from scratch instead of appending to it "
+        "(required when the dataset schema changes).",
+    )
     args = parser.parse_args()
 
-    extractor = VulnExtractor(args.sources.split(","), args.repo_id, args.nb_rows)
+    extractor = VulnExtractor(
+        args.sources.split(","), args.repo_id, args.nb_rows, args.from_scratch
+    )
     asyncio.run(extractor.run())
 
 
