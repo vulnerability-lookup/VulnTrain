@@ -321,6 +321,45 @@ compare it against the single-call baseline on a small `--limit` before
 committing to a full run. Any change to the model, the prompt, or `--reason`
 invalidates a previous agreement number — re-run `validate` to re-baseline.
 
+**Model-selection benchmark.** We measured LLM-vs-gold agreement on a
+held-out slice of the CTID gold set, at the parent-technique granularity the
+trainer uses, to decide which model is trustworthy enough to expand with. The
+acceptance bar is the trained supervised classifier's own agreement with gold
+(**f1_micro 0.42**): an LLM that scores below it would only inject labels
+*worse* than what the model already predicts, so expansion would degrade the
+dataset rather than enrich it.
+
+| Backend / model | Prompt & mode | Precision | Recall | **f1_micro** | Notes |
+|---|---|---:|---:|---:|---|
+| ollama / qwen3.6:35b | conservative, single-call | 0.429 | 0.248 | 0.314 | original baseline |
+| ollama / qwen3.6:35b | assertive, single-call | 0.442 | 0.271 | 0.336 | prompt helps marginally |
+| ollama / qwen3.6:35b | assertive, `--reason` | 0.395 | 0.214 | 0.278 | worse; reasoning pass times out, drops CVEs |
+| _supervised classifier_ | _(trained on gold)_ | — | — | _0.42_ | _acceptance bar_ |
+| **ollama / qwen3.5:122b** | **assertive, single-call** | **0.509** | **0.429** | **0.465** | **clears the bar** |
+
+Sample: 30 gold CVEs from the `test` split, 8 few-shot examples, identical
+across rows (the 35B rows share one 30-CVE slice; the 122B row is directly
+comparable). Two findings drove the model choice:
+
+1. **Model capacity, not prompt engineering, is the binding constraint.** The
+   assertive prompt lifted the 35B by only +0.02 f1; moving to the 122B lifted
+   it by +0.13, almost entirely by fixing recall (0.27 → 0.43). The smaller
+   model *under-predicts* — it agrees when it commits, but stays silent too
+   often. Capacity is what buys the commitment.
+2. **Two-step `--reason` did not pay off on a mid-size thinking model.** On the
+   *same* 30 CVEs it scored below single-call (0.278 vs 0.336), and the
+   unconstrained reasoning pass on the 35B repeatedly exceeded the Ollama
+   timeout, dropping whole CVEs to empty labels. It may still help a larger box
+   with a longer timeout, but it is not a substitute for model size.
+
+**qwen3.5:122b (single-call, assertive prompt) is the selected expansion
+model**: at f1_micro 0.465 it is the only configuration that clears the
+supervised acceptance bar, and its agreement is in the range typically
+reported for inter-analyst agreement on ATT&CK CVE mappings. Throughput is
+~1 min/CVE on our GPU server, so a few-hundred-CVE expansion is an overnight
+run. These figures should be re-confirmed on the full 121-CVE test split
+before being cited as the headline number.
+
 **Validate before trusting expansion.** Run the `validate` mode first: it
 labels a held-out slice of the *gold* set and reports agreement
 (precision/recall/F1 at the parent-technique level) between the model and
