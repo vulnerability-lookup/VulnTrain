@@ -52,18 +52,21 @@ vulntrain/
 ├── datasets/        # Dataset generation from Valkey DB
 │   ├── create_dataset.py      # VulnExtractor: main dataset builder
 │   └── cwe-guesser-dataset.py # CWE dataset with Git diffs (async GitHub API)
+├── data/            # Package data shipped with vulntrain
+│   └── deep_child_to_ancestor.json  # CWE child→ancestor mapping used by the CWE trainer
 ├── trainers/        # HF Transformers Trainer-based training
 │   ├── classify_severity.py       # Severity classification (CVSS→Low/Med/High/Critical)
 │   ├── classify_severity_cnvd.py  # CNVD-specific severity classification
 │   ├── generation_description.py  # GPT-2 description generation
-│   ├── cwe_guesser_patches.py     # CWE classification with weighted loss
-│   └── hierarchy.py               # CWE hierarchy utilities + JSON mappings
+│   └── cwe_guesser_patches.py     # CWE classification with weighted loss
 ├── validators/      # Model evaluation and benchmarking
 │   ├── severity.py, summarize.py  # Per-task validators
 │   ├── evaluation.py              # Comprehensive evaluation framework
 │   └── benchmark_models.py        # Model comparison
 └── utils.py         # CVSS extraction (v2/v3/v4), CPE parsing, markdown stripping
 ```
+
+One-off CWE mapping generation scripts and their input/output JSON files live in `tools/cwe/` (see `tools/cwe/README.md` for the pipeline).
 
 **Key design points**:
 - `VulnExtractor` (in `datasets/create_dataset.py`) connects to a Valkey (Redis-compatible) database holding raw vulnerability JSON and supports sources: `cvelistv5`, `github`, `csaf_redhat`, `csaf_cisco`, `csaf_cisa`, `pysec`, `cnvd`.
