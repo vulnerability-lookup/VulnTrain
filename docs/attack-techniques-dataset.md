@@ -77,15 +77,20 @@ vulntrain-validate-attack-classification --method classifier \
 
 # 4. Grow the dataset with LLM-assisted labeling — local Ollama model (no
 #    API key) or Claude; validate agreement against the gold set BEFORE expanding
-vulntrain-dataset-attack-llm-labeling --mode validate --backend ollama --model qwen3.6:35b
-vulntrain-dataset-attack-llm-labeling --mode expand --backend ollama --model qwen3.6:35b \
-  --sample-n 2000 --push --repo-id CIRCL/vulnerability-attack-techniques-llm
+vulntrain-dataset-attack-llm-labeling --mode validate --backend ollama --model qwen3.5:122b
+vulntrain-dataset-attack-llm-labeling --mode expand --backend ollama --model qwen3.5:122b \
+  --sample-n 300 --push --agreement-note "f1_micro 0.392 on the 121-CVE gold test split"
 
-# 5. Retrain on gold + LLM-labeled data and re-run step 3
+# 5. Retrain on the gold + LLM union (LLM rows go into train only) and re-run step 3
+vulntrain-train-attack-classification --base-model roberta-base \
+  --extra-dataset-id CIRCL/vulnerability-attack-techniques-llm-ollama-qwen3.5-122b \
+  --repo-id CIRCL/vulnerability-attack-technique-classification-pilot
 ```
 
-Steps 1–3 are done and published; step 4 is implemented and awaiting its
-first validated run; step 5 follows from its results. Source files (CTID
+Steps 1–3 are done and published. Step 4's model selection is done
+(qwen3.5:122b, f1_micro 0.392 agreement — see the benchmark below), and a
+300-CVE pilot expansion plus union retrain (step 5) is in progress to measure
+whether the expansion improves rare-technique recall. Source files (CTID
 mappings, ATT&CK STIX data, CVE2CAPEC databases) are cached in
 `~/.cache/vulntrain`.
 
@@ -410,11 +415,60 @@ validation agreement on the expanded dataset card** (the `--agreement-note`
 flag does exactly this) so the labels' quality is documented rather than
 assumed.
 
-Still to do:
+### Retraining on the gold + LLM union
+
+The trainer merges the two provenance tiers through `--extra-dataset-id`:
+
+```bash
+vulntrain-train-attack-classification --base-model roberta-base \
+  --extra-dataset-id CIRCL/vulnerability-attack-techniques-llm-ollama-qwen3.5-122b \
+  --repo-id CIRCL/vulnerability-attack-technique-classification-pilot
+```
+
+The extra rows are concatenated into the **train split only**; the gold
+**test split is left untouched**. This is the crucial part of the experimental
+design: the yardstick stays gold-only, so the union model's test metrics are
+directly comparable to the gold-only model's. Use a **distinct `--repo-id`**
+(e.g. a `-pilot` suffix) so the experiment never overwrites the production
+gold-only model.
+
+### Pilot expansion experiment
+
+To decide whether LLM expansion is worth scaling, we run a small, measurable
+pilot rather than committing to a full expansion up front.
+
+**Design.**
+
+1. `expand` 300 new non-gold CVEs with the selected model (qwen3.5:122b,
+   single-call, assertive prompt), recording the 0.392 full-split agreement on
+   the dataset card via `--agreement-note`.
+2. Retrain the classifier on the **gold-train + LLM** union with
+   `--extra-dataset-id`, evaluating on the untouched gold test split.
+3. Compare against the gold-only baseline on the **same** test split.
+
+**Success criterion.** The pilot succeeds if **recall rises** — especially
+`recall_at_5` and `f1_macro` (which weights rare techniques equally) — without
+`f1_micro` collapsing. The hypothesis under test is that LLM labels, even at
+0.39 agreement, add coverage of rare techniques that the ~1,200-CVE gold set
+under-represents. A flat or worse result means expansion does not pay off at
+this agreement level, and the gold-only model stays the product.
+
+**Baseline (gold-only) on the gold test split:**
+
+| Metric | Gold-only | Gold + LLM (300-CVE pilot) |
+|---|---:|---:|
+| f1_micro | 0.42 | _pending_ |
+| f1_macro | _tbd_ | _pending_ |
+| recall_at_5 | ~0.69 | _pending_ |
+
+_(Pilot results to be filled in once Step 2 completes; the expand run is in
+progress on the GPU server as of this writing.)_
+
+### Still to do
 
 - **Stratify the expansion sample by CWE** so it isn't dominated by the most
   common weakness classes (XSS, SQLi); the current `expand` mode samples
-  CVEs without stratification.
-- Retrain the classifier on the gold + LLM-labeled union and re-run
-  `vulntrain-validate-attack-classification` to confirm the expansion
-  improves rare-technique recall.
+  CVEs without stratification. Worth doing before any *large* expansion,
+  regardless of the pilot outcome.
+- **Scale the expansion** to a few thousand CVEs — only if the pilot shows a
+  recall gain — and re-validate on the gold test split.
