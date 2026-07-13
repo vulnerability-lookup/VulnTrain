@@ -12,6 +12,10 @@ Two backends:
 - ``ollama``: any local model served by an Ollama instance (e.g. Qwen), using
   Ollama structured outputs — no API key or per-token cost.
 
+Both backends label in a single constrained call by default; ``--reason`` adds
+a free-form analysis pass first (a thinking model can then reason before the
+structured extraction, which the output grammar otherwise suppresses).
+
 Two modes, and you must run them in order:
 
 - ``validate``: label a held-out slice of the *gold* set and measure agreement
@@ -71,12 +75,36 @@ Rules:
 - Use ONLY technique IDs from the catalog below. Never invent an ID.
 - Prefer the most specific technique the description supports; use a sub-technique \
 (e.g. T1059.001) only when the description clearly warrants it.
-- Assign a technique only when the description supports it. Leave a slot empty \
-rather than guessing. Most CVEs have one exploitation technique and one primary \
-impact; secondary impact is often empty.
-- Base the mapping strictly on the described behavior of the flaw, not on \
-speculation about a full attack chain.
+- Assign the single best exploitation technique AND the single best primary \
+impact for essentially every CVE: a described flaw almost always implies both \
+how it is reached and what it directly yields. Only leave one of those two slots \
+empty when the description genuinely supports no technique for it.
+- Secondary impact is often empty — include it only when a follow-on action is \
+clearly implied.
+- Precision still matters: do not pad a slot with weakly-related techniques. \
+Prefer one well-supported technique per slot over several speculative ones, and \
+base the mapping on the described behavior of the flaw, not on speculation about \
+a full attack chain.
 """
+
+# Free-form reasoning prompt for the two-step (--reason) mode. The model
+# analyses the CVE with no output constraint, so a thinking model can reason
+# before committing to IDs; the analysis is then handed to a constrained
+# extraction step.
+REASON_PROMPT = (
+    "Analyse this vulnerability and decide its ATT&CK mapping. Reason about how "
+    "an adversary reaches and exploits it, and what the exploitation directly "
+    "yields. Then state the specific technique IDs you conclude on for the "
+    "exploitation technique, the primary impact, and (only if clearly implied) "
+    "the secondary impact, each with a one-line justification.\n\n"
+)
+
+EXTRACTION_SYSTEM = (
+    "You extract MITRE ATT&CK technique IDs from an analysis into a strict JSON "
+    "object matching the schema. Copy only the technique IDs the analysis "
+    "concluded on — do not add, infer, or invent any. Set `comment` to a "
+    "one-sentence summary of the analysis."
+)
 
 
 class AttackLabels(BaseModel):
@@ -101,14 +129,20 @@ class AttackLabels(BaseModel):
 # ---------------------------------------------------------------------
 
 
+def _cacheable_system(text: str) -> list[dict[str, Any]]:
+    return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
+
+
 class AnthropicBackend:
     """Label CVEs with Claude via the Anthropic API.
 
     The system prompt is sent as a single cacheable block, so prompt caching
-    makes all but the first request cheap.
+    makes all but the first request cheap. Claude reasons via adaptive thinking
+    even in the single-call path; ``reason=True`` adds an explicit free-form
+    analysis step before the constrained extraction (parity with Ollama).
     """
 
-    def __init__(self, model: str, system_text: str):
+    def __init__(self, model: str, system_text: str, reason: bool = False):
         try:
             import anthropic
         except ImportError as e:
@@ -120,20 +154,38 @@ class AnthropicBackend:
 
         self.client = anthropic.Anthropic()
         self.model = model
-        self.system_blocks = [
-            {
-                "type": "text",
-                "text": system_text,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ]
+        self.reason = reason
+        self.system_blocks = _cacheable_system(system_text)
 
     def label(self, user_text: str) -> Optional[AttackLabels]:
-        response = self.client.messages.parse(
+        if not self.reason:
+            return self._parse(self.system_blocks, user_text)
+
+        response = self.client.messages.create(
             model=self.model,
             max_tokens=4000,
             thinking={"type": "adaptive"},
             system=self.system_blocks,
+            messages=[{"role": "user", "content": REASON_PROMPT + user_text}],
+        )
+        if getattr(response, "stop_reason", None) == "refusal":
+            logger.warning("Model refused to label a CVE; skipping")
+            return None
+        analysis = "".join(
+            block.text for block in response.content if block.type == "text"
+        )
+        return self._parse(
+            _cacheable_system(EXTRACTION_SYSTEM), f"Analysis:\n{analysis}"
+        )
+
+    def _parse(
+        self, system_blocks: list[dict[str, Any]], user_text: str
+    ) -> Optional[AttackLabels]:
+        response = self.client.messages.parse(
+            model=self.model,
+            max_tokens=4000,
+            thinking={"type": "adaptive"},
+            system=system_blocks,
             messages=[{"role": "user", "content": user_text}],
             output_format=AttackLabels,
         )
@@ -160,29 +212,42 @@ class OllamaBackend:
     as the ``format`` parameter, constraining the model's output. Ollama's
     prompt prefix caching keeps the repeated system prompt cheap across
     consecutive requests.
+
+    ``reason=True`` enables a two-step pass: an unconstrained analysis (so a
+    thinking model can reason freely — the ``format`` grammar otherwise
+    suppresses reasoning) followed by a constrained extraction of the IDs.
     """
 
     MAX_ATTEMPTS = 3
 
-    def __init__(self, model: str, system_text: str, base_url: str, timeout: int):
+    def __init__(
+        self,
+        model: str,
+        system_text: str,
+        base_url: str,
+        timeout: int,
+        reason: bool = False,
+    ):
         self.model = model
         self.system_text = system_text
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.reason = reason
 
-    def label(self, user_text: str) -> Optional[AttackLabels]:
-        payload = json.dumps(
-            {
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": self.system_text},
-                    {"role": "user", "content": user_text},
-                ],
-                "format": AttackLabels.model_json_schema(),
-                "stream": False,
-                "options": {"temperature": 0},
-            }
-        ).encode("utf-8")
+    def _chat(
+        self, messages: list[dict[str, str]], fmt: Optional[dict[str, Any]]
+    ) -> Optional[str]:
+        """POST to /api/chat and return the raw assistant content. Retries
+        connection failures and 5xx; fails fast on a 4xx config error."""
+        body: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+            "options": {"temperature": 0},
+        }
+        if fmt is not None:
+            body["format"] = fmt
+        payload = json.dumps(body).encode("utf-8")
 
         for attempt in range(1, self.MAX_ATTEMPTS + 1):
             request = urllib.request.Request(
@@ -194,8 +259,7 @@ class OllamaBackend:
             try:
                 with urllib.request.urlopen(request, timeout=self.timeout) as resp:
                     data = json.load(resp)
-                content = data.get("message", {}).get("content", "")
-                return AttackLabels.model_validate_json(content)
+                return str(data.get("message", {}).get("content", ""))
             except urllib.error.HTTPError as e:
                 # 4xx are configuration errors (model not pulled, bad request)
                 # — the same call will fail for every CVE, so fail fast with
@@ -213,11 +277,6 @@ class OllamaBackend:
                     f"[{attempt}/{self.MAX_ATTEMPTS}] Ollama HTTP {e.code}: {detail}"
                 )
                 time.sleep(2**attempt)
-            except (ValidationError, json.JSONDecodeError) as e:
-                logger.warning(
-                    f"[{attempt}/{self.MAX_ATTEMPTS}] Model returned invalid "
-                    f"structured output: {e}"
-                )
             except (urllib.error.URLError, TimeoutError) as e:
                 logger.warning(
                     f"[{attempt}/{self.MAX_ATTEMPTS}] Ollama request failed: {e}"
@@ -225,13 +284,60 @@ class OllamaBackend:
                 time.sleep(2**attempt)
         return None
 
+    def _structured(
+        self, messages: list[dict[str, str]]
+    ) -> Optional[AttackLabels]:
+        """Constrained call; retries on malformed structured output."""
+        schema = AttackLabels.model_json_schema()
+        for attempt in range(1, self.MAX_ATTEMPTS + 1):
+            content = self._chat(messages, fmt=schema)
+            if content is None:
+                return None
+            try:
+                return AttackLabels.model_validate_json(content)
+            except (ValidationError, json.JSONDecodeError) as e:
+                logger.warning(
+                    f"[{attempt}/{self.MAX_ATTEMPTS}] Model returned invalid "
+                    f"structured output: {e}"
+                )
+        return None
+
+    def label(self, user_text: str) -> Optional[AttackLabels]:
+        if not self.reason:
+            return self._structured(
+                [
+                    {"role": "system", "content": self.system_text},
+                    {"role": "user", "content": user_text},
+                ]
+            )
+
+        analysis = self._chat(
+            [
+                {"role": "system", "content": self.system_text},
+                {"role": "user", "content": REASON_PROMPT + user_text},
+            ],
+            fmt=None,
+        )
+        if not analysis:
+            return None
+        return self._structured(
+            [
+                {"role": "system", "content": EXTRACTION_SYSTEM},
+                {"role": "user", "content": f"Analysis:\n{analysis}"},
+            ]
+        )
+
 
 def make_backend(args: argparse.Namespace, system_text: str) -> Any:
     if args.backend == "ollama":
         return OllamaBackend(
-            args.model, system_text, args.ollama_url, args.ollama_timeout
+            args.model,
+            system_text,
+            args.ollama_url,
+            args.ollama_timeout,
+            reason=args.reason,
         )
-    return AnthropicBackend(args.model, system_text)
+    return AnthropicBackend(args.model, system_text, reason=args.reason)
 
 
 # ---------------------------------------------------------------------
@@ -655,6 +761,14 @@ def main() -> None:
         help="Model to label with. Defaults per backend: "
         f"{DEFAULT_MODELS['anthropic']} (anthropic), "
         f"{DEFAULT_MODELS['ollama']} (ollama — e.g. qwen3:32b).",
+    )
+    parser.add_argument(
+        "--reason",
+        action="store_true",
+        help="Two-step labeling: an unconstrained analysis pass (lets a thinking "
+        "model reason, which the JSON grammar otherwise suppresses) followed by "
+        "a constrained extraction. Roughly doubles the per-CVE time; try it on a "
+        "small --limit first to see if it raises agreement.",
     )
     parser.add_argument(
         "--ollama-url",

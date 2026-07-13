@@ -311,6 +311,16 @@ The `validate` gate matters most with a local model: it tells you
 objectively whether the chosen Ollama model agrees with the analysts well
 enough to trust, or whether the gap justifies paying for the API.
 
+**Raising agreement.** By default each CVE is labeled in a single constrained
+call. Because the JSON-schema grammar forces the model to emit the answer
+immediately, a *thinking* model (e.g. Qwen) cannot reason first — which tends
+to depress recall. Pass `--reason` for a two-step pass: an unconstrained
+analysis (the model reasons freely) followed by a constrained extraction of
+the technique IDs from that analysis. It roughly doubles the per-CVE time, so
+compare it against the single-call baseline on a small `--limit` before
+committing to a full run. Any change to the model, the prompt, or `--reason`
+invalidates a previous agreement number — re-run `validate` to re-baseline.
+
 **Validate before trusting expansion.** Run the `validate` mode first: it
 labels a held-out slice of the *gold* set and reports agreement
 (precision/recall/F1 at the parent-technique level) between the model and
