@@ -29,7 +29,7 @@ from typing import Any, Optional
 import numpy as np
 import torch
 from codecarbon import EmissionsTracker
-from datasets import load_dataset
+from datasets import concatenate_datasets, load_dataset
 from sklearn.metrics import f1_score, precision_score, recall_score
 from transformers import (
     AutoModelForSequenceClassification,
@@ -144,9 +144,24 @@ def train(
     learning_rate: float = 1e-5,
     batch_size: int = 16,
     max_length: Optional[int] = None,
+    extra_dataset_id: Optional[str] = None,
     push: bool = True,
 ) -> None:
     dataset = load_dataset(dataset_id)
+
+    # Fold extra (e.g. LLM-labeled) rows into the TRAIN split only, so the gold
+    # test split stays an untouched yardstick for the gold+LLM-union experiment.
+    if extra_dataset_id is not None:
+        extra = load_dataset(extra_dataset_id)
+        extra_train = extra["train"] if "train" in extra else extra[next(iter(extra))]
+        shared = [c for c in dataset["train"].column_names if c in extra_train.column_names]
+        dataset["train"] = concatenate_datasets(
+            [dataset["train"].select_columns(shared), extra_train.select_columns(shared)]
+        )
+        logger.info(
+            f"Merged {len(extra_train)} extra rows from {extra_dataset_id} into "
+            f"train (now {len(dataset['train'])}); test split left untouched"
+        )
 
     label_vocabulary = build_label_vocabulary(
         dataset["train"]["techniques"], min_examples, keep_subtechniques
@@ -295,6 +310,14 @@ def main() -> None:
         help="Hugging Face dataset with 'techniques', 'title' and 'description'.",
     )
     parser.add_argument(
+        "--extra-dataset-id",
+        dest="extra_dataset_id",
+        default=None,
+        help="Optional extra dataset (e.g. an LLM-labeled expansion) whose rows "
+        "are folded into the TRAIN split only. The test split is left untouched "
+        "so it stays a gold-only yardstick.",
+    )
+    parser.add_argument(
         "--repo-id",
         required=True,
         help="Hugging Face Hub repo ID to push the model to.",
@@ -387,6 +410,7 @@ def main() -> None:
             learning_rate=args.learning_rate,
             batch_size=args.batch_size,
             max_length=args.max_length,
+            extra_dataset_id=args.extra_dataset_id,
             push=not args.no_push,
         )
 
