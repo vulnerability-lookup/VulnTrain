@@ -189,9 +189,17 @@ The trainer is implemented in `vulntrain/trainers/attack_guesser.py`
 - The weak `techniques_derived` column is intentionally ignored by the
   trainer.
 
+Both approaches are evaluated with the same protocol by
+`vulntrain-validate-attack-classification`
+(`vulntrain/validators/attack_guesser.py`): the zero-shot similarity
+baseline (SMET-style — rank techniques by cosine similarity between the
+description embedding and the official ATT&CK technique name+description)
+and the fine-tuned classifier report the same recall@k and MRR on the same
+test split and label vocabulary, so the numbers are directly comparable.
+The fine-tuned model has to beat the zero-shot baseline to justify
+existing.
+
 Still to do in Phase 2:
 
-- An embedding-similarity baseline (SMET-style, no training required): the
-  fine-tuned model has to beat it to justify existing.
 - LLM-assisted label expansion, validated against the gold set, to grow
   beyond ~1,200 examples.

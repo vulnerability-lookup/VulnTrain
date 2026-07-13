@@ -51,6 +51,7 @@ vulntrain-train-attack-classification = "vulntrain.trainers.attack_guesser:main"
 # Commands for validations:
 vulntrain-validate-text-generation = "vulntrain.validators.summarize:main"
 vulntrain-validate-severity-classification = "vulntrain.validators.severity:main"
+vulntrain-validate-attack-classification = "vulntrain.validators.attack_guesser:main"
 
 
 [tool.poetry]

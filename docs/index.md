@@ -225,6 +225,21 @@ python -m vulntrain.validators.severity_cnvd \
   --new-model CIRCL/vulnerability-severity-classification-chinese-macbert-base-test
 ```
 
+### ATT&CK technique models
+
+Evaluate ATT&CK technique suggestion on the test split of
+[CIRCL/vulnerability-attack-techniques](https://huggingface.co/datasets/CIRCL/vulnerability-attack-techniques).
+The zero-shot similarity baseline (SMET-style: rank techniques by cosine
+similarity between the description embedding and the official ATT&CK
+technique descriptions) and a fine-tuned classifier share the same protocol,
+so their recall@k/MRR numbers are directly comparable — the trained model has
+to beat the baseline to justify existing:
+
+```bash
+vulntrain-validate-attack-classification --method similarity
+vulntrain-validate-attack-classification --method classifier --model CIRCL/vulnerability-attack-technique-classification-roberta-base
+```
+
 ### Text generation
 
 Send prompts to a model trained for vulnerability description generation:
