@@ -329,36 +329,45 @@ acceptance bar is the trained supervised classifier's own agreement with gold
 *worse* than what the model already predicts, so expansion would degrade the
 dataset rather than enrich it.
 
-| Backend / model | Prompt & mode | Precision | Recall | **f1_micro** | Notes |
-|---|---|---:|---:|---:|---|
-| ollama / qwen3.6:35b | conservative, single-call | 0.429 | 0.248 | 0.314 | original baseline |
-| ollama / qwen3.6:35b | assertive, single-call | 0.442 | 0.271 | 0.336 | prompt helps marginally |
-| ollama / qwen3.6:35b | assertive, `--reason` | 0.395 | 0.214 | 0.278 | worse; reasoning pass times out, drops CVEs |
-| _supervised classifier_ | _(trained on gold)_ | — | — | _0.42_ | _acceptance bar_ |
-| **ollama / qwen3.5:122b** | **assertive, single-call** | **0.509** | **0.429** | **0.465** | **clears the bar** |
+| Backend / model | Prompt & mode | Sample | Precision | Recall | **f1_micro** | Notes |
+|---|---|---|---:|---:|---:|---|
+| ollama / qwen3.6:35b | conservative, single-call | 30 | 0.429 | 0.248 | 0.314 | original baseline |
+| ollama / qwen3.6:35b | assertive, single-call | 30 | 0.442 | 0.271 | 0.336 | prompt helps marginally |
+| ollama / qwen3.6:35b | assertive, `--reason` | 30 | 0.395 | 0.214 | 0.278 | worse; reasoning pass times out, drops CVEs |
+| _supervised classifier_ | _(trained on gold)_ | 121 | — | — | _0.42_ | _acceptance bar_ |
+| ollama / qwen3.5:122b | assertive, single-call | 30 | 0.509 | 0.429 | 0.465 | optimistic on the small slice |
+| **ollama / qwen3.5:122b** | **assertive, single-call** | **121** | **0.431** | **0.360** | **0.392** | **full split — the reliable figure** |
 
-Sample: 30 gold CVEs from the `test` split, 8 few-shot examples, identical
-across rows (the 35B rows share one 30-CVE slice; the 122B row is directly
-comparable). Two findings drove the model choice:
+Few-shot examples: 8, identical across rows. The 35B rows and the first 122B
+row share one 30-CVE slice; the final row is the full 121-CVE `test` split.
+Three findings emerge:
 
-1. **Model capacity, not prompt engineering, is the binding constraint.** The
-   assertive prompt lifted the 35B by only +0.02 f1; moving to the 122B lifted
-   it by +0.13, almost entirely by fixing recall (0.27 → 0.43). The smaller
-   model *under-predicts* — it agrees when it commits, but stays silent too
-   often. Capacity is what buys the commitment.
+1. **Model capacity, not prompt engineering, is the binding constraint.** On
+   the 30-CVE slice the assertive prompt lifted the 35B by only +0.02 f1, while
+   moving to the 122B lifted it by +0.13, almost entirely by fixing recall
+   (0.27 → 0.43). The smaller model *under-predicts* — it agrees when it
+   commits, but stays silent too often. Capacity is what buys the commitment.
 2. **Two-step `--reason` did not pay off on a mid-size thinking model.** On the
    *same* 30 CVEs it scored below single-call (0.278 vs 0.336), and the
    unconstrained reasoning pass on the 35B repeatedly exceeded the Ollama
    timeout, dropping whole CVEs to empty labels. It may still help a larger box
    with a longer timeout, but it is not a substitute for model size.
+3. **Small validation slices are optimistic — always confirm on the full
+   split.** The 122B scored 0.465 on 30 CVEs but **0.392 on the full 121**, a
+   0.07 f1 drop driven mostly by recall (0.43 → 0.36). At n=30 the agreement
+   metric has enough variance to mislead a go/no-go decision, so the full-split
+   number is the one of record.
 
-**qwen3.5:122b (single-call, assertive prompt) is the selected expansion
-model**: at f1_micro 0.465 it is the only configuration that clears the
-supervised acceptance bar, and its agreement is in the range typically
-reported for inter-analyst agreement on ATT&CK CVE mappings. Throughput is
-~1 min/CVE on our GPU server, so a few-hundred-CVE expansion is an overnight
-run. These figures should be re-confirmed on the full 121-CVE test split
-before being cited as the headline number.
+**Selected expansion model: qwen3.5:122b (single-call, assertive prompt), at
+f1_micro 0.392 on the full test split.** This sits marginally *below* the
+supervised classifier's 0.42, so the LLM is **not** clearly better than the
+trained model at reproducing gold — a caution, not a green light. It remains
+the best available local configuration and its agreement is within the range
+commonly reported for inter-analyst agreement on technique-level ATT&CK CVE
+mappings, so it is defensible for *cautious, provenance-tiered* expansion (new
+CVEs the classifier has no gold for), never as a silent replacement for gold
+labels. Throughput is ~1 min/CVE on our GPU server, so a few-hundred-CVE
+expansion is an overnight run.
 
 **Validate before trusting expansion.** Run the `validate` mode first: it
 labels a held-out slice of the *gold* set and reports agreement
