@@ -119,11 +119,15 @@ kept as a separate weak column rather than used as training targets), the
 dataset schema, and known limitations.
 
 To grow the curated ~1,200-CVE gold set, `vulntrain-dataset-attack-llm-labeling`
-labels additional CVEs with Claude following the same CTID methodology (requires
-Anthropic API credentials). Always run the validation mode first — it measures
-agreement against the gold set — before scaling up:
+labels additional CVEs with Claude following the same CTID methodology. It
+requires an Anthropic API key (create one at
+[platform.claude.com](https://platform.claude.com) under Settings → API Keys),
+exported as `ANTHROPIC_API_KEY` before running the command. Always run the
+validation mode first — it measures agreement against the gold set — before
+scaling up:
 
 ```bash
+export ANTHROPIC_API_KEY=sk-ant-...   # required, from platform.claude.com
 vulntrain-dataset-attack-llm-labeling --mode validate --validate-split test
 vulntrain-dataset-attack-llm-labeling --mode expand --sample-n 2000 --push --repo-id=CIRCL/vulnerability-attack-techniques-llm
 ```

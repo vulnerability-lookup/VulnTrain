@@ -224,7 +224,12 @@ is what label expansion targets.
 ~1,200 curated CVEs by having Claude label additional CVEs with the **same**
 CTID methodology (exploitation technique / primary impact / secondary
 impact), so the output stays schema-compatible with the gold set. Labeling
-requires Anthropic API credentials and is not run in CI.
+requires an Anthropic API key exported as `ANTHROPIC_API_KEY` before running
+the command, and is not run in CI:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
 
 The system prompt is identical for every CVE — the methodology, the full
 active enterprise ATT&CK technique catalog (from the STIX data), and a set
