@@ -30,8 +30,8 @@ vulntrain-validate-attack-classification --method classifier \
 
 # 4. Grow the dataset with LLM-assisted labeling — local Ollama model (no
 #    API key) or Claude; validate agreement against the gold set BEFORE expanding
-vulntrain-dataset-attack-llm-labeling --mode validate --backend ollama --model qwen3:32b
-vulntrain-dataset-attack-llm-labeling --mode expand --backend ollama --model qwen3:32b \
+vulntrain-dataset-attack-llm-labeling --mode validate --backend ollama --model qwen3.6:35b
+vulntrain-dataset-attack-llm-labeling --mode expand --backend ollama --model qwen3.6:35b \
   --sample-n 2000 --push --repo-id CIRCL/vulnerability-attack-techniques-llm
 
 # 5. Retrain on gold + LLM-labeled data and re-run step 3
@@ -271,7 +271,7 @@ the analysts.
 
 ```bash
 # Local model via Ollama (no API key):
-vulntrain-dataset-attack-llm-labeling --mode validate --backend ollama --model qwen3:32b
+vulntrain-dataset-attack-llm-labeling --mode validate --backend ollama --model qwen3.6:35b
 
 # Or Claude via the Anthropic API:
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -285,15 +285,25 @@ writes a dataset with `label_source = ["llm"]` plus the backend/model ID and
 its justification comment per row:
 
 ```bash
-vulntrain-dataset-attack-llm-labeling --mode expand --backend ollama --model qwen3:32b \
-  --sample-n 2000 --output-dir ./attack-llm --push --repo-id CIRCL/vulnerability-attack-techniques-llm
+vulntrain-dataset-attack-llm-labeling --mode expand --backend ollama --model qwen3.6:35b \
+  --sample-n 2000 --push --repo-id CIRCL/vulnerability-attack-techniques-llm \
+  --agreement-note "f1_micro 0.61 on the 121-CVE test split"
 ```
 
+Each run **appends the backend/model slug to `--repo-id`** (so the example
+above pushes to `…-llm-ollama-qwen3.6-35b`) and writes a dataset card
+recording the labeling model, the CVE count, and — via `--agreement-note` —
+the validation score. This keeps multiple test runs (one per model)
+distinguishable rather than overwriting one another; the exact model is also
+stored per row in the `llm_model` column. Pass `--no-model-suffix` to push to
+`--repo-id` verbatim.
+
 Keep the LLM-labeled rows in a separate provenance tier: merge them with the
-gold set for training, but always retain the `label_source` column so
+gold set for training, but always retain the `label_sources` column so
 consumers can filter back to gold-only, and **publish the measured
-validation agreement on the expanded dataset card** so the labels' quality
-is documented rather than assumed.
+validation agreement on the expanded dataset card** (the `--agreement-note`
+flag does exactly this) so the labels' quality is documented rather than
+assumed.
 
 Still to do:
 
