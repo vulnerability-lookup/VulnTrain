@@ -30,7 +30,3 @@ drops the corresponding examples.
 | `vulnerability.circl.lu.json` | Generated: raw CWE data snapshot. |
 | `cwe_usage.json` | Generated: per-CWE name, abstraction, and mapping usage. |
 | `build_child_to_ancestor.py` | Builds `vulntrain/data/deep_child_to_ancestor.json` (shipped with the package, consumed by `vulntrain-train-cwe-classification`). |
-| `mapping_child_parent_cwe.py` | Builds `parent_to_children_mapping.json` from the raw snapshot. |
-| `parent_to_children_mapping.json` | Generated: parent → children mapping. |
-| `hierarchy.py` | Builds `cwe_hierarchy.json` (hierarchy levels) from the parent/children mapping. |
-| `cwe_hierarchy.json` | Generated: CWE IDs grouped by depth level. |
