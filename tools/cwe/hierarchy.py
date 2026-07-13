@@ -1,8 +1,11 @@
 import json
 from collections import defaultdict
+from pathlib import Path
+
+HERE = Path(__file__).parent
 
 # Load your JSON data from the file
-with open("vulntrain/trainers/parent_to_children_mapping.json", "r") as f:
+with open(HERE / "parent_to_children_mapping.json", "r") as f:
     data = json.load(f)
 
 
@@ -37,5 +40,5 @@ for key, level in hierarchy_levels.items():
 output_with_levels = dict(output_with_levels)
 
 # put the result in a json file
-with open("vulntrain/trainers/cwe_hierarchy.json", "w") as f:
+with open(HERE / "cwe_hierarchy.json", "w") as f:
     json.dump(output_with_levels, f, indent=4)
