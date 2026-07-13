@@ -430,11 +430,13 @@ class VulnExtractor:
                         problem_types = vuln["containers"]["cna"].get(
                             "problemTypes", []
                         )
-                        if problem_types and problem_types[0].get("descriptions"):
-                            desc_data = problem_types[0]["descriptions"][0]
-                            cwe_id = desc_data.get("cweId", "").strip()
-                            cwe_desc = desc_data.get("description", "").strip()
-                            cwe = cwe_desc or cwe_id or "UNKNOWN"
+                        cwes = []
+                        for problem_type in problem_types:
+                            for desc_data in problem_type.get("descriptions", []):
+                                cwe_id = (desc_data.get("cweId") or "").strip()
+                                cwe_desc = (desc_data.get("description") or "").strip()
+                                if cwe_id or cwe_desc:
+                                    cwes.append(cwe_id or cwe_desc)
 
                         desc = next(
                             (
@@ -452,7 +454,7 @@ class VulnExtractor:
                             "title": vuln["containers"]["cna"].get("title", ""),
                             "description": desc,
                             "patches": patches,
-                            "cwe": cwe,
+                            "cwe": cwes,
                         }
 
                     else:  # GHSA
@@ -471,7 +473,7 @@ class VulnExtractor:
                             "id": vuln.get("id", ""),
                             "title": strip_markdown(vuln.get("summary", "")),
                             "patches": patches,
-                            "cwes": cwe_ids,
+                            "cwe": cwe_ids,
                         }
 
                     # if not vuln_data.get("description"):
