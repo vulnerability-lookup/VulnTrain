@@ -1,8 +1,8 @@
 # CVE → MITRE ATT&CK techniques dataset
 
 This page documents the methodology behind the
-`CIRCL/vulnerability-attack-techniques` dataset and the design decisions
-that led to it. The goal (tracked in
+[CIRCL/vulnerability-attack-techniques](https://huggingface.co/datasets/CIRCL/vulnerability-attack-techniques)
+dataset and the design decisions that led to it. The goal (tracked in
 [VulnTrain issue #6](https://github.com/vulnerability-lookup/VulnTrain/issues/6))
 is to train a model that suggests MITRE ATT&CK techniques from a
 vulnerability description: CVSS tells you *how bad* a vulnerability is, CWE
@@ -14,9 +14,9 @@ behavior to expect and detect*. Very few public models cover that gap.
 - **Phase 1** (this page): build a curated CVE → ATT&CK mapping dataset from
   the hand-made MITRE CTID mappings, joined with descriptions from
   [CIRCL/vulnerability-scores](https://huggingface.co/datasets/CIRCL/vulnerability-scores).
-- **Phase 2** (future work): expand the dataset with LLM-assisted labeling,
-  validated against the Phase 1 gold set, then train a multi-label
-  classifier.
+- **Phase 2**: train a multi-label classifier on the curated labels
+  (`vulntrain-train-attack-classification`, see below), and later expand the
+  dataset with LLM-assisted labeling validated against the Phase 1 gold set.
 
 Generate the dataset with:
 
@@ -170,16 +170,28 @@ for a newer ATT&CK release.
   presented as *suggesting candidate techniques* for analyst review, not as
   an authoritative mapping.
 
-## Training considerations (Phase 2 preview)
+## Training (Phase 2)
+
+The trainer is implemented in `vulntrain/trainers/attack_guesser.py`
+(`vulntrain-train-attack-classification`):
 
 - The task is **multi-label** (a CVE legitimately maps to several
-  techniques); use `techniques` with a sigmoid/BCE head, unlike the
-  single-label CWE trainer.
-- Sub-techniques should probably be collapsed to their parent technique at
-  training time (the same trick as the CWE ancestor mapping in
-  `vulntrain/data/deep_child_to_ancestor.json`), and the label vocabulary
-  restricted to techniques with enough support (the build script prints
-  the count of techniques with ≥ 5 examples).
-- An embedding-similarity baseline (SMET-style, no training required)
-  should be implemented first: the fine-tuned model has to beat it to
-  justify existing.
+  techniques): the model trains on the `techniques` column with a sigmoid
+  head and binary cross-entropy loss, unlike the single-label CWE trainer.
+  Per-label positive weights (`--class-weights`) counter class imbalance.
+- Sub-techniques are collapsed to their parent technique at training time
+  (the same trick as the CWE ancestor mapping), and the label vocabulary is
+  restricted to techniques with at least `--min-examples` (default 5)
+  training examples.
+- Evaluation reports micro/macro F1 at the 0.5 threshold plus
+  **recall@3/recall@5**, the metrics that matter for suggesting candidate
+  techniques to an analyst.
+- The weak `techniques_derived` column is intentionally ignored by the
+  trainer.
+
+Still to do in Phase 2:
+
+- An embedding-similarity baseline (SMET-style, no training required): the
+  fine-tuned model has to beat it to justify existing.
+- LLM-assisted label expansion, validated against the gold set, to grow
+  beyond ~1,200 examples.

@@ -180,6 +180,29 @@ python tools/cwe/build_child_to_ancestor.py     # regenerate vulntrain/data/deep
 See `tools/cwe/README.md` for details.
 
 
+### ATT&CK technique classification
+
+Suggest MITRE ATT&CK (Enterprise) techniques from vulnerability descriptions.
+This is a **multi-label** task (a CVE maps to an exploitation technique plus
+one or more impacts), trained with a sigmoid head and binary cross-entropy on
+the [CIRCL/vulnerability-attack-techniques](https://huggingface.co/datasets/CIRCL/vulnerability-attack-techniques)
+dataset:
+
+```bash
+vulntrain-train-attack-classification --base-model roberta-base --dataset-id CIRCL/vulnerability-attack-techniques --repo-id CIRCL/vulnerability-attack-technique-classification-roberta-base
+```
+
+Sub-techniques are collapsed to their parent technique (`--keep-subtechniques`
+to disable) and only techniques with at least `--min-examples` (default 5)
+training examples are kept in the label vocabulary. Per-label BCE positive
+weights counter class imbalance (`--class-weights none|sqrt|balanced`), and
+`--epochs`, `--learning-rate`, `--batch-size` and `--max-length` control the
+schedule as in the CWE trainer. Reported metrics include recall@3/recall@5,
+since the model is used to suggest candidate techniques for analyst review.
+See the [methodology documentation](attack-techniques-dataset.md) for the
+dataset provenance and known limitations.
+
+
 ### Text generation
 
 Train a GPT-2 model to generate vulnerability descriptions:

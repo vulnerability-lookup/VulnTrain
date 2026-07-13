@@ -47,6 +47,7 @@ vulntrain-train-description-generation = "vulntrain.trainers.generation_descript
 vulntrain-train-severity-classification = "vulntrain.trainers.classify_severity:main"
 vulntrain-train-severity-cnvd-classification = "vulntrain.trainers.classify_severity_cnvd:main"
 vulntrain-train-cwe-classification = "vulntrain.trainers.cwe_guesser_patches:main"
+vulntrain-train-attack-classification = "vulntrain.trainers.attack_guesser:main"
 # Commands for validations:
 vulntrain-validate-text-generation = "vulntrain.validators.summarize:main"
 vulntrain-validate-severity-classification = "vulntrain.validators.severity:main"
