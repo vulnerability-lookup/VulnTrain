@@ -28,7 +28,8 @@ dependencies = [
     "codecarbon (>=3.2.1,<4.0.0)",
     "scikit-learn (>=1.8.0,<2.0.0)",
     "markdown-it-py (>=3.0.0,<4.0.0)",
-    "cvss (>=3.6,<4.0)"
+    "cvss (>=3.6,<4.0)",
+    "anthropic (>=0.116.0,<0.117.0)"
 ]
 
 
@@ -42,6 +43,7 @@ Changelog = "https://github.com/vulnerability-lookup/VulnTrain/blob/main/CHANGEL
 # Commands for datasets generation:
 vulntrain-dataset-generation = "vulntrain.datasets.create_dataset:main"
 vulntrain-dataset-attack-generation = "vulntrain.datasets.attack_guesser_dataset:main"
+vulntrain-dataset-attack-llm-labeling = "vulntrain.datasets.attack_llm_labeler:main"
 # Commands for trainings:
 vulntrain-train-description-generation = "vulntrain.trainers.generation_description:main"
 vulntrain-train-severity-classification = "vulntrain.trainers.classify_severity:main"

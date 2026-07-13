@@ -199,7 +199,70 @@ test split and label vocabulary, so the numbers are directly comparable.
 The fine-tuned model has to beat the zero-shot baseline to justify
 existing.
 
-Still to do in Phase 2:
+### Model results (Phase 2)
 
-- LLM-assisted label expansion, validated against the gold set, to grow
-  beyond ~1,200 examples.
+The first trained model,
+[CIRCL/vulnerability-attack-technique-classification-roberta-base](https://huggingface.co/CIRCL/vulnerability-attack-technique-classification-roberta-base)
+(roberta-base, 57-technique vocabulary), roughly doubles the zero-shot
+baseline on every ranking metric:
+
+| Metric | Zero-shot baseline | Fine-tuned model |
+|--------|-------------------|------------------|
+| recall@3 | 0.257 | 0.482 |
+| recall@5 | 0.322 | 0.686 |
+| recall@10 | 0.491 | 0.842 |
+| MRR | 0.397 | 0.620 |
+
+So the supervised approach is justified even on ~1,100 training examples.
+The remaining weakness is rare-technique performance (macro-F1 0.20), which
+is what label expansion targets.
+
+## LLM-assisted label expansion (Phase 2)
+
+`vulntrain/datasets/attack_llm_labeler.py`
+(`vulntrain-dataset-attack-llm-labeling`) grows the training set beyond the
+~1,200 curated CVEs by having Claude label additional CVEs with the **same**
+CTID methodology (exploitation technique / primary impact / secondary
+impact), so the output stays schema-compatible with the gold set. Labeling
+requires Anthropic API credentials and is not run in CI.
+
+The system prompt is identical for every CVE — the methodology, the full
+active enterprise ATT&CK technique catalog (from the STIX data), and a set
+of diverse few-shot examples drawn from the gold set — so prompt caching
+makes all but the first request cheap. Claude returns a structured mapping;
+hallucinated or out-of-catalog technique IDs are dropped.
+
+**Validate before trusting expansion.** Run the `validate` mode first: it
+labels a held-out slice of the *gold* set and reports agreement
+(precision/recall/F1 at the parent-technique level) between the model and
+the analysts.
+
+```bash
+vulntrain-dataset-attack-llm-labeling --mode validate --validate-split test
+```
+
+Only if that agreement is comparable to inter-analyst agreement on ATT&CK
+mappings should you scale up. The `expand` mode then labels a sample of
+CVEs (from `CIRCL/vulnerability-scores` by default, excluding gold CVEs) and
+writes a dataset with `label_source = ["llm"]` plus the model ID and its
+justification comment per row:
+
+```bash
+vulntrain-dataset-attack-llm-labeling --mode expand --sample-n 2000 \
+  --output-dir ./attack-llm --push --repo-id CIRCL/vulnerability-attack-techniques-llm
+```
+
+Keep the LLM-labeled rows in a separate provenance tier: merge them with the
+gold set for training, but always retain the `label_source` column so
+consumers can filter back to gold-only, and **publish the measured
+validation agreement on the expanded dataset card** so the labels' quality
+is documented rather than assumed.
+
+Still to do:
+
+- **Stratify the expansion sample by CWE** so it isn't dominated by the most
+  common weakness classes (XSS, SQLi); the current `expand` mode samples
+  CVEs without stratification.
+- Retrain the classifier on the gold + LLM-labeled union and re-run
+  `vulntrain-validate-attack-classification` to confirm the expansion
+  improves rare-technique recall.

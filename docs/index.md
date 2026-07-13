@@ -118,6 +118,16 @@ source analysis (including why the automatically derived CVE2CAPEC labels are
 kept as a separate weak column rather than used as training targets), the
 dataset schema, and known limitations.
 
+To grow the curated ~1,200-CVE gold set, `vulntrain-dataset-attack-llm-labeling`
+labels additional CVEs with Claude following the same CTID methodology (requires
+Anthropic API credentials). Always run the validation mode first — it measures
+agreement against the gold set — before scaling up:
+
+```bash
+vulntrain-dataset-attack-llm-labeling --mode validate --validate-split test
+vulntrain-dataset-attack-llm-labeling --mode expand --sample-n 2000 --push --repo-id=CIRCL/vulnerability-attack-techniques-llm
+```
+
 
 ## Model training
 
