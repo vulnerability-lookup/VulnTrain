@@ -77,7 +77,6 @@ def train(
         eval_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
-        logging_dir="./logs",
         hub_model_id=repo_id,  # Explicitly specify HF model repo
     )
 
@@ -86,7 +85,7 @@ def train(
         args=training_args,
         train_dataset=datasets["train"],
         eval_dataset=datasets["test"],
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
     )
 
