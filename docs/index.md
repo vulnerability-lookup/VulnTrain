@@ -1,5 +1,15 @@
 # VulnTrain documentation
 
+```{toctree}
+:hidden:
+:caption: Supplementary pages
+
+attack-techniques-dataset
+cnvd-severity-improvements
+cwe-classification-improvements
+hpc
+```
+
 <!-- ```{contents} Table of Contents
 :depth: 3
 ``` -->
@@ -213,8 +223,13 @@ weights counter class imbalance (`--class-weights none|sqrt|balanced`), and
 `--epochs`, `--learning-rate`, `--batch-size` and `--max-length` control the
 schedule as in the CWE trainer. Reported metrics include recall@3/recall@5,
 since the model is used to suggest candidate techniques for analyst review.
-See the [methodology documentation](attack-techniques-dataset.md) for the
-dataset provenance and known limitations.
+
+The resulting model,
+[CIRCL/vulnerability-attack-technique-classification-roberta-base](https://huggingface.co/CIRCL/vulnerability-attack-technique-classification-roberta-base),
+roughly doubles the zero-shot similarity baseline (recall@5 0.69 vs 0.32 —
+see the Validation section below). See the
+[methodology documentation](attack-techniques-dataset.md) for the dataset
+provenance, the full evaluation, and known limitations.
 
 
 ### Text generation

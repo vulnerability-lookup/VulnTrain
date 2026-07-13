@@ -9,24 +9,39 @@ vulnerability description: CVSS tells you *how bad* a vulnerability is, CWE
 tells you *what kind of flaw* it is, ATT&CK tells defenders *what adversary
 behavior to expect and detect*. Very few public models cover that gap.
 
-## Overall plan
+## Workflow at a glance
 
-- **Phase 1** (this page): build a curated CVE → ATT&CK mapping dataset from
-  the hand-made MITRE CTID mappings, joined with descriptions from
-  [CIRCL/vulnerability-scores](https://huggingface.co/datasets/CIRCL/vulnerability-scores).
-- **Phase 2**: train a multi-label classifier on the curated labels
-  (`vulntrain-train-attack-classification`, see below), and later expand the
-  dataset with LLM-assisted labeling validated against the Phase 1 gold set.
-
-Generate the dataset with:
+The full pipeline, in the order the commands are meant to be run (each step
+is detailed in its own section below):
 
 ```bash
+# 1. Build the curated dataset from the MITRE CTID gold mappings
 vulntrain-dataset-attack-generation --output-dir ./attack-dataset       # dry run, local only
 vulntrain-dataset-attack-generation --push --repo-id CIRCL/vulnerability-attack-techniques
+
+# 2. Train the multi-label classifier (GPU recommended)
+vulntrain-train-attack-classification --base-model roberta-base \
+  --repo-id CIRCL/vulnerability-attack-technique-classification-roberta-base
+
+# 3. Evaluate: the trained model must beat the zero-shot similarity baseline
+vulntrain-validate-attack-classification --method similarity
+vulntrain-validate-attack-classification --method classifier \
+  --model CIRCL/vulnerability-attack-technique-classification-roberta-base
+
+# 4. Grow the dataset with LLM-assisted labeling (needs ANTHROPIC_API_KEY);
+#    validate agreement against the gold set BEFORE expanding
+export ANTHROPIC_API_KEY=sk-ant-...
+vulntrain-dataset-attack-llm-labeling --mode validate --validate-split test
+vulntrain-dataset-attack-llm-labeling --mode expand --sample-n 2000 \
+  --push --repo-id CIRCL/vulnerability-attack-techniques-llm
+
+# 5. Retrain on gold + LLM-labeled data and re-run step 3
 ```
 
-Source files (CTID mappings, ATT&CK STIX data, CVE2CAPEC databases) are
-cached in `~/.cache/vulntrain`.
+Steps 1–3 are done and published; step 4 is implemented and awaiting its
+first validated run; step 5 follows from its results. Source files (CTID
+mappings, ATT&CK STIX data, CVE2CAPEC databases) are cached in
+`~/.cache/vulntrain`.
 
 ## Candidate label sources, and what we measured
 
@@ -59,7 +74,8 @@ Both are Apache-2.0 licensed. Together they cover 1,228 distinct CVEs
 label was written by an analyst. The resulting technique distribution
 matches what one would expect from real-world exploitation: T1190 (348),
 T1059 (262), T1203 (213), T1068 (189), with 192 distinct techniques of
-which 66 have at least 5 examples.
+which 66 have at least 5 examples (57 once sub-techniques are collapsed to
+their parent, which is what the trainer uses as its label vocabulary).
 
 ### Derived source: CVE2CAPEC (included, but not as training labels)
 
@@ -106,8 +122,9 @@ are still valuable, so the dataset keeps them in a clearly separated
   ~1,800 CVEs and 31 techniques; *SMET* (Abdeen et al., ACSAC 2023)
   deliberately avoided supervised classification because of label scarcity
   and used semantic similarity against ATT&CK technique descriptions
-  instead. SMET-style similarity ranking is a baseline worth implementing
-  in Phase 2.
+  instead. That SMET-style similarity ranking is exactly what
+  `vulntrain-validate-attack-classification --method similarity` implements
+  as the zero-shot baseline (see Training below).
 
 ## Pipeline
 
@@ -154,9 +171,9 @@ for a newer ATT&CK release.
 
 ## Known limitations
 
-- **Size**: ~1,250 CVEs supports a proof-of-concept, not a production
-  model. Phase 2 (LLM-assisted labeling validated against this gold set)
-  addresses this.
+- **Size**: ~1,200 CVEs supports a proof-of-concept, not a production
+  model. LLM-assisted label expansion (see below), validated against this
+  gold set, addresses this.
 - **Selection bias**: both CTID sets over-represent exploited-in-the-wild
   vulnerabilities (the KEV set by construction), so the technique
   distribution is skewed toward remote exploitation of servers compared to
@@ -189,15 +206,15 @@ The trainer is implemented in `vulntrain/trainers/attack_guesser.py`
 - The weak `techniques_derived` column is intentionally ignored by the
   trainer.
 
-Both approaches are evaluated with the same protocol by
+The fine-tuned classifier and a zero-shot similarity baseline (SMET-style —
+rank techniques by cosine similarity between the description embedding and
+the official ATT&CK technique name+description, no training involved) are
+evaluated with the same protocol by
 `vulntrain-validate-attack-classification`
-(`vulntrain/validators/attack_guesser.py`): the zero-shot similarity
-baseline (SMET-style — rank techniques by cosine similarity between the
-description embedding and the official ATT&CK technique name+description)
-and the fine-tuned classifier report the same recall@k and MRR on the same
-test split and label vocabulary, so the numbers are directly comparable.
-The fine-tuned model has to beat the zero-shot baseline to justify
-existing.
+(`vulntrain/validators/attack_guesser.py`): both report the same recall@k
+and MRR on the same test split and label vocabulary, so the numbers are
+directly comparable. The fine-tuned model has to beat the zero-shot
+baseline to justify existing.
 
 ### Model results (Phase 2)
 
@@ -225,11 +242,7 @@ is what label expansion targets.
 CTID methodology (exploitation technique / primary impact / secondary
 impact), so the output stays schema-compatible with the gold set. Labeling
 requires an Anthropic API key exported as `ANTHROPIC_API_KEY` before running
-the command, and is not run in CI:
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-```
+the command (see the commands below), and is not run in CI.
 
 The system prompt is identical for every CVE — the methodology, the full
 active enterprise ATT&CK technique catalog (from the STIX data), and a set
@@ -243,6 +256,7 @@ labels a held-out slice of the *gold* set and reports agreement
 the analysts.
 
 ```bash
+export ANTHROPIC_API_KEY=sk-ant-...
 vulntrain-dataset-attack-llm-labeling --mode validate --validate-split test
 ```
 
