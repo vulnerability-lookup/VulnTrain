@@ -132,6 +132,23 @@ Predict CWE classifications from vulnerability descriptions and associated patch
 vulntrain-train-cwe-classification --base-model roberta-base --dataset-id CIRCL/vulnerability-cwe-patch --repo-id CIRCL/cwe-parent-vulnerability-classification-roberta-base
 ```
 
+The trainer maps each CWE of the dataset to an ancestor CWE via
+`vulntrain/data/deep_child_to_ancestor.json`, built so that every training
+label has an *Allowed* or *Allowed-with-Review* MITRE mapping usage: the model
+can never suggest a Discouraged or Prohibited CWE.
+
+This mapping is versioned and shipped with VulnTrain, so no extra step is
+required before training. To optionally refresh it against the latest CWE
+data from [Vulnerability-Lookup](https://vulnerability.circl.lu), run the
+following commands before training and commit the regenerated files:
+
+```bash
+python tools/cwe/update_cwe_knowledge_base.py   # refresh the CWE knowledge base from the API
+python tools/cwe/build_child_to_ancestor.py     # regenerate vulntrain/data/deep_child_to_ancestor.json
+```
+
+See `tools/cwe/README.md` for details.
+
 
 ### Text generation
 

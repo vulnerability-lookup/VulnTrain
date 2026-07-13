@@ -1,8 +1,16 @@
 # CWE mapping generation tools
 
-One-off scripts used to build the CWE mapping files. They are not part of the
-installed `vulntrain` package and are only needed when the CWE data must be
-regenerated.
+Scripts used to build the CWE mapping consumed by
+`vulntrain-train-cwe-classification`. They are not part of the installed
+`vulntrain` package.
+
+Running them is **optional**: the resulting
+`vulntrain/data/deep_child_to_ancestor.json` is versioned and shipped with
+VulnTrain, so training works out of the box. Run the pipeline below before
+training only when you want to pick up the latest CWE data (new CWEs, changed
+mapping usages) from Vulnerability-Lookup, and commit the regenerated files.
+Both steps are needed, in order: the first only refreshes the knowledge base,
+the second regenerates the mapping the trainer reads.
 
 ## Pipeline
 
