@@ -164,7 +164,6 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
         weight_decay=0.01,
         logging_steps=20,
         load_best_model_at_end=True,
-        push_to_hub=True,
         hub_model_id=repo_id,
     )
 
@@ -208,7 +207,7 @@ def train(base_model, dataset_id, repo_id, model_save_dir="./vulnerability-class
     with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=4)
 
-    trainer.push_to_hub(repo_id)
+    trainer.push_to_hub()
     tokenizer.push_to_hub(repo_id)
 
     if push_emissions_report(model_save_dir, repo_id):
