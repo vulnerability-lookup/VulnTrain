@@ -100,6 +100,21 @@ python vulntrain/datasets/cwe-guesser-dataset.py --sources cvelistv5,github,pyse
 ```
 
 
+### CVE/ATT&CK techniques dataset
+
+Generate a dataset mapping CVEs to MITRE ATT&CK techniques from the hand-curated
+MITRE CTID mappings, with descriptions joined from `CIRCL/vulnerability-scores`:
+
+```bash
+vulntrain-dataset-attack-generation --push --repo-id=CIRCL/vulnerability-attack-techniques
+```
+
+See the [methodology documentation](attack-techniques-dataset.md) for the label
+source analysis (including why the automatically derived CVE2CAPEC labels are
+kept as a separate weak column rather than used as training targets), the
+dataset schema, and known limitations.
+
+
 ## Model training
 
 ### Severity classification
