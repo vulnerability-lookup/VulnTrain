@@ -89,10 +89,11 @@ vulntrain-train-attack-classification --base-model roberta-base \
 
 Steps 1–3 are done and published. Step 4's model selection is done
 (qwen3.5:122b, f1_micro 0.392 agreement — see the benchmark below), and the
-step-5 pilot (300-CVE expansion + union retrain) is **complete**: it showed
-that expansion at this agreement level slightly *degrades* the classifier, so
-the gold-only model remains the product (see "Pilot expansion experiment"
-below). Source files (CTID mappings, ATT&CK STIX data, CVE2CAPEC databases)
+step-5 pilot (300-CVE expansion + union retrain) is **complete**: across five
+seeds it gives a small but consistent ranking gain (recall@3 +0.038, recall@5
++0.030) though no rare-technique improvement — a single-run version had
+misleadingly shown a *degradation* (see "Pilot expansion experiment" below).
+Source files (CTID mappings, ATT&CK STIX data, CVE2CAPEC databases)
 are cached in `~/.cache/vulntrain`.
 
 ## Candidate label sources, and what we measured
@@ -329,18 +330,19 @@ invalidates a previous agreement number — re-run `validate` to re-baseline.
 
 **Model-selection benchmark.** We measured LLM-vs-gold agreement on a
 held-out slice of the CTID gold set, at the parent-technique granularity the
-trainer uses, to decide which model is trustworthy enough to expand with. The
-acceptance bar is the trained supervised classifier's own agreement with gold
-(**f1_micro 0.42**): an LLM that scores below it would only inject labels
-*worse* than what the model already predicts, so expansion would degrade the
-dataset rather than enrich it.
+trainer uses, to pick the best model to expand with. We use the trained
+classifier's own agreement with gold (**f1_micro ~0.41**) as a *reference*
+level — the intuition being that a labeler below it adds labels noisier than
+the model's own predictions. This is a reference, not a hard gate: the seed
+sweep below shows labels at 0.39 agreement still help ranking in aggregate, so
+the figure contextualises the labeler rather than accepting or rejecting it.
 
 | Backend / model | Prompt & mode | Sample | Precision | Recall | **f1_micro** | Notes |
 |---|---|---|---:|---:|---:|---|
 | ollama / qwen3.6:35b | conservative, single-call | 30 | 0.429 | 0.248 | 0.314 | original baseline |
 | ollama / qwen3.6:35b | assertive, single-call | 30 | 0.442 | 0.271 | 0.336 | prompt helps marginally |
 | ollama / qwen3.6:35b | assertive, `--reason` | 30 | 0.395 | 0.214 | 0.278 | worse; reasoning pass times out, drops CVEs |
-| _supervised classifier_ | _(trained on gold)_ | 121 | — | — | _0.42_ | _acceptance bar_ |
+| _supervised classifier_ | _(trained on gold)_ | 121 | — | — | _~0.41_ | _reference level_ |
 | ollama / qwen3.5:122b | assertive, single-call | 30 | 0.509 | 0.429 | 0.465 | optimistic on the small slice |
 | **ollama / qwen3.5:122b** | **assertive, single-call** | **121** | **0.431** | **0.360** | **0.392** | **full split — the reliable figure** |
 
@@ -366,14 +368,14 @@ Three findings emerge:
 
 **Selected expansion model: qwen3.5:122b (single-call, assertive prompt), at
 f1_micro 0.392 on the full test split.** This sits marginally *below* the
-supervised classifier's 0.42, so the LLM is **not** clearly better than the
-trained model at reproducing gold — a caution, not a green light. It remains
-the best available local configuration and its agreement is within the range
-commonly reported for inter-analyst agreement on technique-level ATT&CK CVE
-mappings, so it is defensible for *cautious, provenance-tiered* expansion (new
-CVEs the classifier has no gold for), never as a silent replacement for gold
-labels. Throughput is ~1 min/CVE on our GPU server, so a few-hundred-CVE
-expansion is an overnight run.
+classifier's own ~0.41 agreement — so on the benchmark alone the LLM is not
+clearly better than the trained model at reproducing gold. That made it a
+best-case candidate to *test* rather than a sure thing; the seed sweep below is
+what actually decides it. Its agreement is within the range commonly reported
+for inter-analyst agreement on technique-level ATT&CK CVE mappings, and it is
+used for *provenance-tiered* expansion (new CVEs, `label_sources=["llm"]`),
+never as a silent replacement for gold labels. Throughput is ~1 min/CVE on our
+GPU server, so a few-hundred-CVE expansion is an overnight run.
 
 **Validate before trusting expansion.** Run the `validate` mode first: it
 labels a held-out slice of the *gold* set and reports agreement
@@ -454,56 +456,68 @@ pilot rather than committing to a full expansion up front.
 under-represents. A flat or worse result means expansion does not pay off at
 this agreement level, and the gold-only model stays the product.
 
-**Result — the pilot did not improve the model.** Both models were trained
-with identical code, seed (42), and hyper-parameters; the only difference is
-the 297 LLM-labeled rows folded into training. The gold-only figures below are
-a *matched* re-run under the current code, not the earlier published number —
-that re-run landed at f1_micro 0.407 (the old 0.42 was a slightly different
-configuration), which is exactly why the comparison was re-measured rather than
-taken from memory.
+> **Important — this result was corrected by a seed sweep.** The single-run
+> pilot below (seed 42) appeared to *degrade* the model. Repeating the
+> comparison across five seeds **reversed the sign**: expansion gives a small
+> but consistent ranking gain. The single-run numbers are kept as a cautionary
+> example; the multi-seed table is the result of record.
 
-| Metric | Gold-only (matched) | Gold + LLM (300-CVE pilot) | Δ |
+**Single-run pilot (seed 42) — misleading.** Both models were trained with
+identical code, seed (42), and hyper-parameters; the only difference is the 297
+LLM-labeled rows folded into training (train split only; gold test untouched).
+The gold-only figures are a *matched* re-run under the current code (f1_micro
+0.407; the old 0.42 was a slightly different configuration).
+
+| Metric | Gold-only (seed 42) | Gold + LLM (seed 42) | Δ |
 |---|---:|---:|---:|
-| f1_micro | **0.407** | 0.395 | −0.012 |
-| f1_macro | **0.185** | 0.164 | −0.021 |
+| f1_micro | 0.407 | 0.395 | −0.012 |
+| f1_macro | 0.185 | 0.164 | −0.021 |
 | recall_micro | 0.625 | 0.626 | +0.001 |
-| recall_at_3 | **0.546** | 0.491 | −0.055 |
-| recall_at_5 | **0.683** | 0.633 | −0.050 |
+| recall_at_3 | 0.546 | 0.491 | −0.055 |
+| recall_at_5 | 0.683 | 0.633 | −0.050 |
 
-Every metric except `recall_micro` (flat) **regressed**, and the two the
-criterion singled out — `recall_at_5` and `f1_macro` — fell the most. Adding
-LLM labels made the classifier *slightly worse*, not better.
+Taken alone this says expansion hurts. It does not: seed 42's gold-only
+`recall_at_5` (0.683) is ~2σ above the five-seed mean (0.641), a lucky draw for
+gold and an unlucky one for the union — the worst pairing for detecting a gain.
 
-**Interpretation.** At 0.39 agreement the LLM labels are noisier than gold, so
-folding 297 of them into ~1,000 gold training rows **dilutes the signal**
-instead of adding coverage. Rare-technique performance (`f1_macro`) suffers
-most, precisely because that is where the LLM is least reliable. The result is
-consistent across the ranking (`recall_at_k`) and threshold (`f1`) metrics, so
-it is not an artifact of one score.
+**Five-seed result (seeds 42–46) — the number of record.** Mean ± std across
+seeds; Δ is the mean of the paired per-seed differences. "Consistent" marks
+|Δ| > 2·SEM (see `--seed` on the trainer and `aggregate_sweep.py`).
 
-This is a clean, useful **negative result**: *LLM-assisted expansion at
-inter-analyst-level agreement (~0.39 f1) does not improve a supervised
-CVE→ATT&CK classifier — it marginally degrades it.* The label-noise floor, not
-the amount of data, is the binding constraint at this scale.
+| Metric | Gold-only | Gold + LLM | Δ (paired) | |
+|---|---:|---:|---:|---|
+| recall_at_3 | 0.506 ± 0.019 | **0.544 ± 0.023** | +0.038 | consistent ↑ |
+| recall_at_5 | 0.641 ± 0.019 | **0.670 ± 0.033** | +0.030 | consistent ↑ |
+| f1_micro | 0.405 ± 0.019 | **0.424 ± 0.010** | +0.020 | consistent ↑ |
+| f1_macro | 0.177 ± 0.012 | 0.173 ± 0.017 | −0.004 | within noise |
+| recall_micro | **0.651 ± 0.013** | 0.636 ± 0.007 | −0.015 | consistent ↓ |
 
-**Decision: keep the gold-only model as the product.** The LLM labeler,
-Ollama/Anthropic backends, and `--extra-dataset-id` union path all remain in
-the codebase so the experiment is reproducible and can be revisited if a
-higher-agreement labeling process becomes available.
+**Interpretation.** Even at ~0.39 agreement the LLM labels give a **small but
+consistent gain on the analyst-facing ranking metrics** (recall@3/@5) and
+micro-F1. But `f1_macro` does not move: expansion did **not** deliver the
+rare-technique coverage that motivated it (the LLM is least reliable exactly on
+the long tail). The slight `recall_micro` dip alongside better top-k ranking
+means the union model orders predictions better but is marginally more
+conservative at the 0.5 threshold — an argument for threshold tuning.
+
+The methodological lesson matters as much as the metrics: at ~1,200 examples the
+per-seed variance (0.02–0.03 on the ranking metrics) exceeds the effect, so a
+**single-run comparison can flip the sign**. Always sweep seeds and report
+variance.
+
+**Decision.** Expansion is a mild net positive for the suggestion use case, so
+it is worth keeping — but it is not the rare-technique fix. The gold-only model
+remains a fine product; folding in the LLM union is a defensible, small
+improvement.
 
 ### Still to do
 
-Expansion only becomes worth revisiting if label **agreement** can be lifted
-well above 0.39 first — more data at this noise level does not help:
-
-- **Raise labeling agreement before adding data.** Options: a stronger model
-  than qwen3.5:122b, human review of LLM labels before they enter the train
-  set (turning them into a genuine silver tier), or restricting LLM labels to
-  the high-confidence slots (exploitation technique + primary impact only).
-  Re-run `validate` and only proceed if agreement clears, say, 0.6.
+- **Larger, seed-repeated expansion** to test whether the ranking gain scales
+  beyond 297 CVEs (or plateaus / eventually hurts as noise accumulates).
+- **Target the rare techniques directly** — higher-agreement labeling (stronger
+  model, human-reviewed silver labels, or high-confidence slots only) aimed at
+  the long tail that `f1_macro` shows is still untouched.
 - **Stratify the expansion sample by CWE** so it isn't dominated by the most
   common weakness classes (XSS, SQLi); the current `expand` mode samples
-  CVEs without stratification. This addresses coverage but not the label-noise
-  floor, so it is secondary to raising agreement.
-- **Grow the gold set directly** (more CTID-style curated mappings) — the one
-  path this experiment shows unambiguously helps.
+  CVEs without stratification.
+- **Grow the gold set directly** (more CTID-style curated mappings).
