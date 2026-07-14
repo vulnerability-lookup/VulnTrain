@@ -145,6 +145,7 @@ def train(
     batch_size: int = 16,
     max_length: Optional[int] = None,
     extra_dataset_id: Optional[str] = None,
+    extra_max_rows: Optional[int] = None,
     seed: int = 42,
     push: bool = True,
 ) -> None:
@@ -155,6 +156,11 @@ def train(
     if extra_dataset_id is not None:
         extra = load_dataset(extra_dataset_id)
         extra_train = extra["train"] if "train" in extra else extra[next(iter(extra))]
+        # Cap the number of extra rows for expansion-size scaling sweeps. Taking
+        # the first N rows keeps the sizes nested (100 rows ⊂ 300 ⊂ all) so the
+        # scaling curve is measured on a consistent, growing subset.
+        if extra_max_rows is not None and extra_max_rows < len(extra_train):
+            extra_train = extra_train.select(range(extra_max_rows))
         shared = [c for c in dataset["train"].column_names if c in extra_train.column_names]
         dataset["train"] = concatenate_datasets(
             [dataset["train"].select_columns(shared), extra_train.select_columns(shared)]
@@ -381,6 +387,15 @@ def main() -> None:
         "input length, capped at 8192 tokens.",
     )
     parser.add_argument(
+        "--extra-max-rows",
+        dest="extra_max_rows",
+        type=int,
+        default=None,
+        help="Cap the number of --extra-dataset-id rows folded into train (first "
+        "N rows). Use to sweep expansion size from one labeled dataset; the "
+        "subsets are nested (N=100 rows are a subset of N=300).",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=42,
@@ -421,6 +436,7 @@ def main() -> None:
             batch_size=args.batch_size,
             max_length=args.max_length,
             extra_dataset_id=args.extra_dataset_id,
+            extra_max_rows=args.extra_max_rows,
             seed=args.seed,
             push=not args.no_push,
         )
