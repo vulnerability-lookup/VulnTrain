@@ -88,11 +88,12 @@ vulntrain-train-attack-classification --base-model roberta-base \
 ```
 
 Steps 1–3 are done and published. Step 4's model selection is done
-(qwen3.5:122b, f1_micro 0.392 agreement — see the benchmark below), and a
-300-CVE pilot expansion plus union retrain (step 5) is in progress to measure
-whether the expansion improves rare-technique recall. Source files (CTID
-mappings, ATT&CK STIX data, CVE2CAPEC databases) are cached in
-`~/.cache/vulntrain`.
+(qwen3.5:122b, f1_micro 0.392 agreement — see the benchmark below), and the
+step-5 pilot (300-CVE expansion + union retrain) is **complete**: it showed
+that expansion at this agreement level slightly *degrades* the classifier, so
+the gold-only model remains the product (see "Pilot expansion experiment"
+below). Source files (CTID mappings, ATT&CK STIX data, CVE2CAPEC databases)
+are cached in `~/.cache/vulntrain`.
 
 ## Candidate label sources, and what we measured
 
@@ -453,22 +454,56 @@ pilot rather than committing to a full expansion up front.
 under-represents. A flat or worse result means expansion does not pay off at
 this agreement level, and the gold-only model stays the product.
 
-**Baseline (gold-only) on the gold test split:**
+**Result — the pilot did not improve the model.** Both models were trained
+with identical code, seed (42), and hyper-parameters; the only difference is
+the 297 LLM-labeled rows folded into training. The gold-only figures below are
+a *matched* re-run under the current code, not the earlier published number —
+that re-run landed at f1_micro 0.407 (the old 0.42 was a slightly different
+configuration), which is exactly why the comparison was re-measured rather than
+taken from memory.
 
-| Metric | Gold-only | Gold + LLM (300-CVE pilot) |
-|---|---:|---:|
-| f1_micro | 0.42 | _pending_ |
-| f1_macro | _tbd_ | _pending_ |
-| recall_at_5 | ~0.69 | _pending_ |
+| Metric | Gold-only (matched) | Gold + LLM (300-CVE pilot) | Δ |
+|---|---:|---:|---:|
+| f1_micro | **0.407** | 0.395 | −0.012 |
+| f1_macro | **0.185** | 0.164 | −0.021 |
+| recall_micro | 0.625 | 0.626 | +0.001 |
+| recall_at_3 | **0.546** | 0.491 | −0.055 |
+| recall_at_5 | **0.683** | 0.633 | −0.050 |
 
-_(Pilot results to be filled in once Step 2 completes; the expand run is in
-progress on the GPU server as of this writing.)_
+Every metric except `recall_micro` (flat) **regressed**, and the two the
+criterion singled out — `recall_at_5` and `f1_macro` — fell the most. Adding
+LLM labels made the classifier *slightly worse*, not better.
+
+**Interpretation.** At 0.39 agreement the LLM labels are noisier than gold, so
+folding 297 of them into ~1,000 gold training rows **dilutes the signal**
+instead of adding coverage. Rare-technique performance (`f1_macro`) suffers
+most, precisely because that is where the LLM is least reliable. The result is
+consistent across the ranking (`recall_at_k`) and threshold (`f1`) metrics, so
+it is not an artifact of one score.
+
+This is a clean, useful **negative result**: *LLM-assisted expansion at
+inter-analyst-level agreement (~0.39 f1) does not improve a supervised
+CVE→ATT&CK classifier — it marginally degrades it.* The label-noise floor, not
+the amount of data, is the binding constraint at this scale.
+
+**Decision: keep the gold-only model as the product.** The LLM labeler,
+Ollama/Anthropic backends, and `--extra-dataset-id` union path all remain in
+the codebase so the experiment is reproducible and can be revisited if a
+higher-agreement labeling process becomes available.
 
 ### Still to do
 
+Expansion only becomes worth revisiting if label **agreement** can be lifted
+well above 0.39 first — more data at this noise level does not help:
+
+- **Raise labeling agreement before adding data.** Options: a stronger model
+  than qwen3.5:122b, human review of LLM labels before they enter the train
+  set (turning them into a genuine silver tier), or restricting LLM labels to
+  the high-confidence slots (exploitation technique + primary impact only).
+  Re-run `validate` and only proceed if agreement clears, say, 0.6.
 - **Stratify the expansion sample by CWE** so it isn't dominated by the most
   common weakness classes (XSS, SQLi); the current `expand` mode samples
-  CVEs without stratification. Worth doing before any *large* expansion,
-  regardless of the pilot outcome.
-- **Scale the expansion** to a few thousand CVEs — only if the pilot shows a
-  recall gain — and re-validate on the gold test split.
+  CVEs without stratification. This addresses coverage but not the label-noise
+  floor, so it is secondary to raising agreement.
+- **Grow the gold set directly** (more CTID-style curated mappings) — the one
+  path this experiment shows unambiguously helps.
