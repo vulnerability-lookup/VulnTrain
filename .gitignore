@@ -38,3 +38,6 @@ vulntrain/config/conf.py
 vulnerability/
 results/
 
+# Paper drafts — kept out of the public repo until formal publication
+papers/
+
