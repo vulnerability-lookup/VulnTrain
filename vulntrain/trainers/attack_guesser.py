@@ -145,6 +145,7 @@ def train(
     batch_size: int = 16,
     max_length: Optional[int] = None,
     extra_dataset_id: Optional[str] = None,
+    seed: int = 42,
     push: bool = True,
 ) -> None:
     dataset = load_dataset(dataset_id)
@@ -243,6 +244,8 @@ def train(
         load_best_model_at_end=True,
         metric_for_best_model="f1_macro",
         greater_is_better=True,
+        seed=seed,
+        data_seed=seed,
         hub_model_id=repo_id,
     )
 
@@ -378,6 +381,13 @@ def main() -> None:
         "input length, capped at 8192 tokens.",
     )
     parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for training (weight init, data shuffling). Vary it "
+        "across runs to measure run-to-run variance.",
+    )
+    parser.add_argument(
         "--no-push",
         action="store_true",
         help="Do not push the model to the Hugging Face Hub (dry run).",
@@ -411,6 +421,7 @@ def main() -> None:
             batch_size=args.batch_size,
             max_length=args.max_length,
             extra_dataset_id=args.extra_dataset_id,
+            seed=args.seed,
             push=not args.no_push,
         )
 
