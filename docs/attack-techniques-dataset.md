@@ -374,8 +374,10 @@ best-case candidate to *test* rather than a sure thing; the seed sweep below is
 what actually decides it. Its agreement is within the range commonly reported
 for inter-analyst agreement on technique-level ATT&CK CVE mappings, and it is
 used for *provenance-tiered* expansion (new CVEs, `label_sources=["llm"]`),
-never as a silent replacement for gold labels. Throughput is ~1 min/CVE on our
-GPU server, so a few-hundred-CVE expansion is an overnight run.
+never as a silent replacement for gold labels. Throughput is ~1.4 min/CVE on
+our GPU server (2× NVIDIA H100 NVL, Ollama): the 1000-CVE scaling batch took
+23h03m and kept 984 CVEs, pushed as
+`CIRCL/vulnerability-attack-techniques-llm-scaling`.
 
 **Validate before trusting expansion.** Run the `validate` mode first: it
 labels a held-out slice of the *gold* set and reports agreement
