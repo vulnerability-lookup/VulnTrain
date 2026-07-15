@@ -147,9 +147,22 @@ def train(
     extra_dataset_id: Optional[str] = None,
     extra_max_rows: Optional[int] = None,
     seed: int = 42,
+    val_split: float = 0.1,
+    deterministic: bool = False,
     push: bool = True,
 ) -> None:
     dataset = load_dataset(dataset_id)
+
+    # Carve a validation split out of the gold TRAIN portion for best-checkpoint
+    # selection. Selecting the best epoch on the test split both leaks the test
+    # set into model selection and turns the reported metric into an argmax over
+    # many noisy evaluations of a small set; a dedicated validation split keeps
+    # the test split strictly held out. Carved before any extra rows are merged
+    # so the selection yardstick stays gold-only across expansion sizes.
+    if val_split > 0.0:
+        gold_split = dataset["train"].train_test_split(test_size=val_split, seed=seed)
+        dataset["train"] = gold_split["train"]
+        dataset["validation"] = gold_split["test"]
 
     # Fold extra (e.g. LLM-labeled) rows into the TRAIN split only, so the gold
     # test split stays an untouched yardstick for the gold+LLM-union experiment.
@@ -192,6 +205,11 @@ def train(
     logger.info(
         f"Train examples: {len(dataset['train'])}, "
         f"test examples: {len(dataset['test'])}"
+        + (
+            f", validation examples: {len(dataset['validation'])}"
+            if val_split > 0.0
+            else ""
+        )
     )
 
     pos_weight: Optional[torch.Tensor] = None
@@ -252,14 +270,16 @@ def train(
         greater_is_better=True,
         seed=seed,
         data_seed=seed,
+        full_determinism=deterministic,
         hub_model_id=repo_id,
     )
 
+    selection_split = "validation" if val_split > 0.0 else "test"
     trainer = MultiLabelTrainer(
         model=model,
         args=training_args,
         train_dataset=tokenized_dataset["train"],
-        eval_dataset=tokenized_dataset["test"],
+        eval_dataset=tokenized_dataset[selection_split],
         processing_class=tokenizer,
         data_collator=DataCollatorWithPadding(tokenizer),
         compute_metrics=compute_metrics,
@@ -289,7 +309,10 @@ def train(
         model.config.problem_type = "multi_label_classification"
         model.config.save_pretrained(model_save_dir)
 
-    metrics = trainer.evaluate()
+    # Always report final metrics on the held-out test split (during training
+    # the trainer evaluates the selection split, which may be the validation
+    # carve-out).
+    metrics = trainer.evaluate(eval_dataset=tokenized_dataset["test"])
     metrics_path = Path(model_save_dir) / "metrics.json"
     with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=4)
@@ -396,6 +419,22 @@ def main() -> None:
         "subsets are nested (N=100 rows are a subset of N=300).",
     )
     parser.add_argument(
+        "--val-split",
+        dest="val_split",
+        type=float,
+        default=0.1,
+        help="Fraction of the gold train split held out for best-checkpoint "
+        "selection so the test split stays strictly held out. 0 restores the "
+        "previous behaviour of selecting on the test split.",
+    )
+    parser.add_argument(
+        "--deterministic",
+        action="store_true",
+        help="Fully deterministic training (transformers full_determinism: "
+        "deterministic CUDA algorithms + CUBLAS workspace config). Makes "
+        "fixed-seed runs bit-reproducible at a modest speed cost.",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=42,
@@ -438,6 +477,8 @@ def main() -> None:
             extra_dataset_id=args.extra_dataset_id,
             extra_max_rows=args.extra_max_rows,
             seed=args.seed,
+            val_split=args.val_split,
+            deterministic=args.deterministic,
             push=not args.no_push,
         )
 
