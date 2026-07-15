@@ -458,11 +458,15 @@ pilot rather than committing to a full expansion up front.
 under-represents. A flat or worse result means expansion does not pay off at
 this agreement level, and the gold-only model stays the product.
 
-> **Important — this result was corrected by a seed sweep.** The single-run
-> pilot below (seed 42) appeared to *degrade* the model. Repeating the
-> comparison across five seeds **reversed the sign**: expansion gives a small
-> but consistent ranking gain. The single-run numbers are kept as a cautionary
-> example; the multi-seed table is the result of record.
+> **Important — this experiment produced three successive verdicts, and only
+> the last survives.** The single-run pilot (seed 42) said expansion *degrades*
+> the model. A five-seed sweep said it *helps* (small consistent ranking gain).
+> An independent replication plus an expansion-size scaling sweep showed both
+> were artifacts: **expansion at ~0.39 agreement gives no reliable gain at any
+> size from 100 to 984 rows, and degrades rare-technique macro-F1 at scale.**
+> The root cause of the churn was evaluation noise from best-checkpoint
+> selection on the small test split (now fixed in the trainer — see below).
+> The earlier tables are kept as cautionary examples.
 
 **Single-run pilot (seed 42) — misleading.** Both models were trained with
 identical code, seed (42), and hyper-parameters; the only difference is the 297
@@ -478,13 +482,15 @@ The gold-only figures are a *matched* re-run under the current code (f1_micro
 | recall_at_3 | 0.546 | 0.491 | −0.055 |
 | recall_at_5 | 0.683 | 0.633 | −0.050 |
 
-Taken alone this says expansion hurts. It does not: seed 42's gold-only
-`recall_at_5` (0.683) is ~2σ above the five-seed mean (0.641), a lucky draw for
-gold and an unlucky one for the union — the worst pairing for detecting a gain.
+Taken alone this says expansion hurts. That conclusion did not survive — though
+the reason turned out to be subtler than first thought (see the mechanism
+below).
 
-**Five-seed result (seeds 42–46) — the number of record.** Mean ± std across
-seeds; Δ is the mean of the paired per-seed differences. "Consistent" marks
-|Δ| > 2·SEM (see `--seed` on the trainer and `aggregate_sweep.py`).
+**Five-seed sweep (seeds 42–46) — appeared to reverse it; second cautionary
+example.** Mean ± std across seeds; Δ is the mean of the paired per-seed
+differences. "Consistent" marks |Δ| > 2·SEM (see `--seed` on the trainer and
+`aggregate_sweep.py`). At the time this was adopted as the number of record;
+the replication below showed the gold-only column had drawn low.
 
 | Metric | Gold-only | Gold + LLM | Δ (paired) | |
 |---|---:|---:|---:|---|
@@ -494,32 +500,68 @@ seeds; Δ is the mean of the paired per-seed differences. "Consistent" marks
 | f1_macro | 0.177 ± 0.012 | 0.173 ± 0.017 | −0.004 | within noise |
 | recall_micro | **0.651 ± 0.013** | 0.636 ± 0.007 | −0.015 | consistent ↓ |
 
-**Interpretation.** Even at ~0.39 agreement the LLM labels give a **small but
-consistent gain on the analyst-facing ranking metrics** (recall@3/@5) and
-micro-F1. But `f1_macro` does not move: expansion did **not** deliver the
-rare-technique coverage that motivated it (the LLM is least reliable exactly on
-the long tail). The slight `recall_micro` dip alongside better top-k ranking
-means the union model orders predictions better but is marginally more
-conservative at the 0.5 threshold — an argument for threshold tuning.
+**Scaling sweep + replication (2026-07-15) — the result of record.** A fresh,
+independently sampled batch of 1,000 CVEs was labeled with the same
+configuration (984 kept, pushed as
+`CIRCL/vulnerability-attack-techniques-llm-scaling`), and the trainer's
+`--extra-max-rows` folded in the first N rows (nested subsets), five seeds per
+size, against a matched gold-only baseline from the same session
+(`scaling_sweep.py`):
 
-The methodological lesson matters as much as the metrics: at ~1,200 examples the
-per-seed variance (0.02–0.03 on the ranking metrics) exceeds the effect, so a
-**single-run comparison can flip the sign**. Always sweep seeds and report
-variance.
+| N extra rows | recall_at_3 | recall_at_5 | f1_micro | f1_macro |
+|---:|---|---|---|---|
+| 0 | 0.531 ± 0.025 | 0.682 ± 0.021 | 0.418 ± 0.016 | 0.189 ± 0.014 |
+| 100 | 0.534 ± 0.018 | 0.655 ± 0.025 | 0.408 ± 0.022 | 0.170 ± 0.013 |
+| 300 | 0.523 ± 0.016 | 0.671 ± 0.011 | 0.412 ± 0.014 | 0.175 ± 0.006 |
+| 600 | 0.536 ± 0.024 | 0.656 ± 0.031 | 0.416 ± 0.026 | 0.175 ± 0.004 |
+| 984 | 0.532 ± 0.018 | 0.651 ± 0.013 | 0.437 ± 0.013 | 0.150 ± 0.007 |
 
-**Decision.** Expansion is a mild net positive for the suggestion use case, so
-it is worth keeping — but it is not the rare-technique fix. The gold-only model
-remains a fine product; folding in the LLM union is a defensible, small
-improvement.
+No size reproduces the five-seed gain: recall@3 is flat, recall@5 *declines*
+at full size (−0.031, 2.8 SEM), f1_macro degrades markedly (−0.039, 5.6 SEM —
+the strongest effect in the sweep), and only f1_micro edges up at 984 (+0.019,
+borderline 2.1 SEM). Re-running the *original* 297-row union in the same
+session reproduced its recall@5 almost exactly (0.670 ± 0.007 vs 0.670 ±
+0.033 in the old sweep) — but against the matched baseline of 0.682 ± 0.021,
+not 0.641. **The five-seed "gain" was a low-drawn gold baseline, not a
+property of the union model.**
+
+**The mechanism — evaluation noise from checkpoint selection.** The trainer
+picked the best of 40 per-epoch checkpoints by macro-F1 *on the 119-example
+test split*. Per-epoch evals of a split that small wobble hugely (recall@5
+spans 0.62–0.70 within one run), so the reported metric is an argmax over 40
+noisy evaluations, and ordinary GPU nondeterminism changes which epoch wins:
+three runs of the *identical* gold-only configuration (same seed, data, code,
+hardware) reported recall@5 of 0.636, 0.683, and 0.685 — a 0.048 spread from
+evaluation noise alone. This defeats single runs *and* the paired 2·SEM test.
+Fixed in the trainer: `--val-split` (default 0.1) carves a gold-only
+validation split for checkpoint selection so the test split is evaluated
+exactly once, and `--deterministic` (transformers `full_determinism`) makes
+fixed-seed runs bit-reproducible. Numbers above predate the fix (mild
+select-on-test optimism, same on both sides of every comparison); numbers of
+record for released models should be re-established under the new protocol.
+
+**Decision.** Expansion at ~0.39 agreement is **not worth folding in**: no
+reliable ranking gain at any size, and a real rare-technique cost at scale.
+The gold-only model stays the product. The result also vindicates the
+"reference level" heuristic — a labeler agreeing below the classifier's own
+accuracy (0.392 < 0.407) added nothing the model didn't already know.
+
+The methodological lesson matters as much as the metrics: multi-seed reporting
+was **necessary but not sufficient** — the five-seed comparison passed its own
+consistency criterion and was still wrong. In this regime you also need a
+selection split that is not the test split, deterministic (or repeated) runs,
+and replication on an independent sample before believing a small effect.
 
 ### Still to do
 
-- **Larger, seed-repeated expansion** to test whether the ranking gain scales
-  beyond 297 CVEs (or plateaus / eventually hurts as noise accumulates).
-- **Target the rare techniques directly** — higher-agreement labeling (stronger
-  model, human-reviewed silver labels, or high-confidence slots only) aimed at
-  the long tail that `f1_macro` shows is still untouched.
-- **Stratify the expansion sample by CWE** so it isn't dominated by the most
-  common weakness classes (XSS, SQLi); the current `expand` mode samples
+- **Re-establish the numbers of record** (gold-only model) under the corrected
+  protocol: `--val-split 0.1 --deterministic`, 5+ seeds.
+- **Raise labeler agreement** before any further expansion attempt — stronger
+  model, human-reviewed silver labels, or high-confidence slots only — aimed at
+  the long tail that `f1_macro` shows is the binding constraint.
+- **Stratify any future expansion sample by CWE** so it isn't dominated by the
+  most common weakness classes (XSS, SQLi); the current `expand` mode samples
   CVEs without stratification.
 - **Grow the gold set directly** (more CTID-style curated mappings).
+- **Base-model comparison** (roberta-large, SecureBERT, ModernBERT) under the
+  new protocol.
