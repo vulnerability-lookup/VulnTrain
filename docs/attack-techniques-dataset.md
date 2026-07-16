@@ -546,7 +546,7 @@ Numbers above predate the fix (mild
 select-on-test optimism, same on both sides of every comparison).
 
 **Numbers of record (corrected protocol, 2026-07-16).** Gold-only,
-`--val-split 0.1` (975 train / ~108 validation / 119 test), five seeds
+`--val-split 0.1` (972 train / 106 validation / 118 test), five seeds
 (42–46):
 
 | recall@5 | recall@3 | micro-F1 | macro-F1 |
@@ -575,6 +575,30 @@ of the once-"consistent" gain), the macro-F1 degradation at scale is
 confirmed (−0.026, ≈2.9 SEM), and the borderline micro-F1 uptick at 984
 persists unresolved (+0.017, ≈1.3 SEM).
 
+**Gold labels scale; LLM labels do not (2026-07-16).** The natural control:
+train on nested subsets of the gold train split (`--train-fraction`, label
+vocabulary and test set frozen to the full-gold ones, five seeds each):
+
+| gold rows | recall@5 | recall@3 | micro-F1 | macro-F1 |
+|---|---|---|---|---|
+| 243 | 0.556 ± 0.034 | 0.384 ± 0.045 | 0.328 ± 0.013 | 0.114 ± 0.018 |
+| 484 | 0.623 ± 0.023 | 0.475 ± 0.019 | 0.383 ± 0.014 | 0.153 ± 0.017 |
+| 725 | 0.656 ± 0.037 | 0.507 ± 0.015 | 0.395 ± 0.028 | 0.173 ± 0.035 |
+| 972 | 0.673 ± 0.019 | 0.536 ± 0.032 | 0.410 ± 0.006 | 0.177 ± 0.014 |
+
+Every metric rises monotonically with gold size, and the curve has not
+saturated. The contrast with expansion is stark: the last ~250 gold rows add
++0.017 recall@5, while 297 LLM rows added to the same full gold set
+*subtract* 0.018. The classifier is label-quality bound, not data bound —
+growing the curated set is the one intervention with measured payoff.
+
+> **Protocol warning.** A naive version of this experiment — rebuilding the
+> label vocabulary from each subset — *inverts* the macro-F1 trend (0.282 at
+> 243 rows): smaller train sets yield smaller vocabularies, an easier
+> averaging set, and (through the in-vocabulary test filter) an easier test
+> set. `--train-fraction` therefore freezes the vocabulary and test set to
+> the full-gold ones.
+
 **Decision.** Expansion at ~0.39 agreement is **not worth folding in**: no
 reliable ranking gain at any size, and a real rare-technique cost at scale.
 The gold-only model stays the product. The result also vindicates the
@@ -598,6 +622,8 @@ and replication on an independent sample before believing a small effect.
 - **Stratify any future expansion sample by CWE** so it isn't dominated by the
   most common weakness classes (XSS, SQLi); the current `expand` mode samples
   CVEs without stratification.
-- **Grow the gold set directly** (more CTID-style curated mappings).
+- **Grow the gold set directly** (more CTID-style curated mappings) — the
+  gold scaling curve shows every metric still rising at 972 training rows,
+  so this is the intervention with measured payoff.
 - **Base-model comparison** (roberta-large, SecureBERT, ModernBERT) under the
   new protocol.
