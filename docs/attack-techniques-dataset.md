@@ -537,9 +537,11 @@ Fixed in the trainer: `--val-split` (default 0.1) carves a gold-only
 validation split for checkpoint selection so the test split is evaluated
 exactly once, and `--deterministic` (transformers `full_determinism`) makes
 fixed-seed runs bit-reproducible — note it sets `CUDA_LAUNCH_BLOCKING=1`,
-which serializes kernel launches and slows training by an order of magnitude
-(worst on multiple GPUs), so reserve it for single-GPU archival runs; a
-multi-seed sweep already averages over run-to-run noise and does not need it.
+which **deadlocks multi-GPU DataParallel** (observed on 2× H100: zero steps in
+eight hours; the trainer now refuses to start with more than one visible GPU)
+and slows single-GPU training. Reserve it for single-GPU archival runs
+(`CUDA_VISIBLE_DEVICES=0`); a multi-seed sweep already averages over
+run-to-run noise and does not need it.
 Numbers above predate the fix (mild
 select-on-test optimism, same on both sides of every comparison); numbers of
 record for released models should be re-established under the new protocol.

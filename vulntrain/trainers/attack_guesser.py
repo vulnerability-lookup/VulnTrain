@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import shutil
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any, Optional
@@ -151,6 +152,18 @@ def train(
     deterministic: bool = False,
     push: bool = True,
 ) -> None:
+    # full_determinism sets CUDA_LAUNCH_BLOCKING=1, which deadlocks
+    # multi-GPU DataParallel on the first training step (observed on
+    # 2x H100: 0 steps in 8 hours). Fail fast instead of hanging.
+    if deterministic and torch.cuda.device_count() > 1:
+        sys.exit(
+            "--deterministic deadlocks with multiple visible GPUs "
+            f"({torch.cuda.device_count()} detected): full_determinism sets "
+            "CUDA_LAUNCH_BLOCKING=1, which stalls DataParallel. Restrict to "
+            "one GPU, e.g. CUDA_VISIBLE_DEVICES=0, and adjust --batch-size "
+            "to keep the effective batch size."
+        )
+
     dataset = load_dataset(dataset_id)
 
     # Carve a validation split out of the gold TRAIN portion for best-checkpoint
@@ -433,9 +446,10 @@ def main() -> None:
         help="Fully deterministic training (transformers full_determinism: "
         "deterministic CUDA algorithms + CUBLAS workspace config). Makes "
         "fixed-seed runs bit-reproducible, but sets CUDA_LAUNCH_BLOCKING=1, "
-        "which serializes kernel launches: expect an order-of-magnitude "
-        "slowdown, worst with multiple GPUs. Reserve for single-GPU archival "
-        "runs; multi-seed sweeps do not need it.",
+        "which DEADLOCKS multi-GPU DataParallel (the trainer refuses to "
+        "start with >1 visible GPU) and slows single-GPU training. Reserve "
+        "for single-GPU archival runs (CUDA_VISIBLE_DEVICES=0); multi-seed "
+        "sweeps do not need it.",
     )
     parser.add_argument(
         "--seed",
