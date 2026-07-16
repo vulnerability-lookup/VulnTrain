@@ -559,6 +559,22 @@ select-on-test optimism that also absorbs the 10% of training data ceded to
 the validation split. Micro-F1's run-to-run std drops from ±0.016 to ±0.006:
 selecting checkpoints on a dedicated split removes variance, not just bias.
 
+**The verdict under the corrected instrument (2026-07-16).** The decisive
+contrast re-run under the corrected protocol — the same five seeds, gold-only
+vs the 297-row union vs all 984 LLM rows:
+
+| training data | recall@5 | recall@3 | micro-F1 | macro-F1 |
+|---|---|---|---|---|
+| gold only | **0.673 ± 0.019** | 0.536 ± 0.032 | 0.410 ± 0.006 | **0.177 ± 0.014** |
+| gold + 297 LLM rows | 0.655 ± 0.027 | 0.511 ± 0.023 | 0.404 ± 0.012 | 0.169 ± 0.009 |
+| gold + 984 LLM rows | 0.651 ± 0.022 | 0.534 ± 0.012 | 0.427 ± 0.028 | 0.151 ± 0.014 |
+
+The null verdict is confirmed with the cleaner instrument: no ranking gain at
+either size (at 297 rows *every* metric sits at or below gold-only — no trace
+of the once-"consistent" gain), the macro-F1 degradation at scale is
+confirmed (−0.026, ≈2.9 SEM), and the borderline micro-F1 uptick at 984
+persists unresolved (+0.017, ≈1.3 SEM).
+
 **Decision.** Expansion at ~0.39 agreement is **not worth folding in**: no
 reliable ranking gain at any size, and a real rare-technique cost at scale.
 The gold-only model stays the product. The result also vindicates the
