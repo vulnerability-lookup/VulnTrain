@@ -186,11 +186,18 @@ def train(
     # expansion sweep); applied after the validation carve-out so the
     # selection yardstick stays constant across fractions, and before any
     # extra rows are merged so the fraction applies to gold data only.
+    # The label vocabulary is frozen to the FULL gold train split: building
+    # it from the subsample would shrink the label space (fewer techniques
+    # reach min_examples) and, through the sum(labels)>0 test filter, the
+    # test set itself — making metrics incomparable across fractions.
+    frozen_vocab_techniques = None
     if train_fraction < 1.0:
+        frozen_vocab_techniques = dataset["train"]["techniques"]
         keep = int(len(dataset["train"]) * train_fraction)
         dataset["train"] = dataset["train"].shuffle(seed=13).select(range(keep))
         logger.info(
-            f"Subsampled gold train to {keep} rows (fraction {train_fraction})"
+            f"Subsampled gold train to {keep} rows (fraction {train_fraction}); "
+            "label vocabulary frozen to the full gold train split"
         )
 
     # Fold extra (e.g. LLM-labeled) rows into the TRAIN split only, so the gold
@@ -213,7 +220,13 @@ def train(
         )
 
     label_vocabulary = build_label_vocabulary(
-        dataset["train"]["techniques"], min_examples, keep_subtechniques
+        (
+            frozen_vocab_techniques
+            if frozen_vocab_techniques is not None
+            else dataset["train"]["techniques"]
+        ),
+        min_examples,
+        keep_subtechniques,
     )
     label_to_id = {label: idx for idx, label in enumerate(label_vocabulary)}
     id_to_label = {idx: label for label, idx in label_to_id.items()}
@@ -455,7 +468,9 @@ def main() -> None:
         help="Fraction of the gold train split to keep (after the validation "
         "carve-out, before extra rows are merged), for a gold-size scaling "
         "curve. A fixed shuffle seed keeps subsets nested across fractions "
-        "and identical across run seeds.",
+        "and identical across run seeds. The label vocabulary (and hence the "
+        "filtered test set) is frozen to the full gold train split so "
+        "metrics stay comparable across fractions.",
     )
     parser.add_argument(
         "--val-split",
