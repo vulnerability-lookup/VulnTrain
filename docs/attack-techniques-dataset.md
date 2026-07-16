@@ -536,7 +536,11 @@ evaluation noise alone. This defeats single runs *and* the paired 2·SEM test.
 Fixed in the trainer: `--val-split` (default 0.1) carves a gold-only
 validation split for checkpoint selection so the test split is evaluated
 exactly once, and `--deterministic` (transformers `full_determinism`) makes
-fixed-seed runs bit-reproducible. Numbers above predate the fix (mild
+fixed-seed runs bit-reproducible — note it sets `CUDA_LAUNCH_BLOCKING=1`,
+which serializes kernel launches and slows training by an order of magnitude
+(worst on multiple GPUs), so reserve it for single-GPU archival runs; a
+multi-seed sweep already averages over run-to-run noise and does not need it.
+Numbers above predate the fix (mild
 select-on-test optimism, same on both sides of every comparison); numbers of
 record for released models should be re-established under the new protocol.
 
@@ -555,7 +559,8 @@ and replication on an independent sample before believing a small effect.
 ### Still to do
 
 - **Re-establish the numbers of record** (gold-only model) under the corrected
-  protocol: `--val-split 0.1 --deterministic`, 5+ seeds.
+  protocol: `--val-split 0.1` (default), 5+ seeds; optionally one single-GPU
+  `--deterministic` archival run for the released checkpoint.
 - **Raise labeler agreement** before any further expansion attempt — stronger
   model, human-reviewed silver labels, or high-confidence slots only — aimed at
   the long tail that `f1_macro` shows is the binding constraint.
