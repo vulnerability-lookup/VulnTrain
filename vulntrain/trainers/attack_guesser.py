@@ -147,6 +147,7 @@ def train(
     max_length: Optional[int] = None,
     extra_dataset_id: Optional[str] = None,
     extra_max_rows: Optional[int] = None,
+    train_fraction: float = 1.0,
     seed: int = 42,
     val_split: float = 0.1,
     deterministic: bool = False,
@@ -163,6 +164,8 @@ def train(
             "one GPU, e.g. CUDA_VISIBLE_DEVICES=0, and adjust --batch-size "
             "to keep the effective batch size."
         )
+    if not 0.0 < train_fraction <= 1.0:
+        sys.exit(f"--train-fraction must be in (0, 1], got {train_fraction}")
 
     dataset = load_dataset(dataset_id)
 
@@ -176,6 +179,19 @@ def train(
         gold_split = dataset["train"].train_test_split(test_size=val_split, seed=seed)
         dataset["train"] = gold_split["train"]
         dataset["validation"] = gold_split["test"]
+
+    # Subsample the gold TRAIN portion for a gold-size scaling curve. A fixed
+    # shuffle seed keeps the subsets nested across fractions and identical
+    # across run seeds (mirroring the nested-subset design of the LLM
+    # expansion sweep); applied after the validation carve-out so the
+    # selection yardstick stays constant across fractions, and before any
+    # extra rows are merged so the fraction applies to gold data only.
+    if train_fraction < 1.0:
+        keep = int(len(dataset["train"]) * train_fraction)
+        dataset["train"] = dataset["train"].shuffle(seed=13).select(range(keep))
+        logger.info(
+            f"Subsampled gold train to {keep} rows (fraction {train_fraction})"
+        )
 
     # Fold extra (e.g. LLM-labeled) rows into the TRAIN split only, so the gold
     # test split stays an untouched yardstick for the gold+LLM-union experiment.
@@ -432,6 +448,16 @@ def main() -> None:
         "subsets are nested (N=100 rows are a subset of N=300).",
     )
     parser.add_argument(
+        "--train-fraction",
+        dest="train_fraction",
+        type=float,
+        default=1.0,
+        help="Fraction of the gold train split to keep (after the validation "
+        "carve-out, before extra rows are merged), for a gold-size scaling "
+        "curve. A fixed shuffle seed keeps subsets nested across fractions "
+        "and identical across run seeds.",
+    )
+    parser.add_argument(
         "--val-split",
         dest="val_split",
         type=float,
@@ -493,6 +519,7 @@ def main() -> None:
             max_length=args.max_length,
             extra_dataset_id=args.extra_dataset_id,
             extra_max_rows=args.extra_max_rows,
+            train_fraction=args.train_fraction,
             seed=args.seed,
             val_split=args.val_split,
             deterministic=args.deterministic,
