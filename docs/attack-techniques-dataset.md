@@ -543,8 +543,21 @@ and slows single-GPU training. Reserve it for single-GPU archival runs
 (`CUDA_VISIBLE_DEVICES=0`); a multi-seed sweep already averages over
 run-to-run noise and does not need it.
 Numbers above predate the fix (mild
-select-on-test optimism, same on both sides of every comparison); numbers of
-record for released models should be re-established under the new protocol.
+select-on-test optimism, same on both sides of every comparison).
+
+**Numbers of record (corrected protocol, 2026-07-16).** Gold-only,
+`--val-split 0.1` (975 train / ~108 validation / 119 test), five seeds
+(42–46):
+
+| recall@5 | recall@3 | micro-F1 | macro-F1 |
+|---|---|---|---|
+| 0.673 ± 0.019 | 0.536 ± 0.032 | 0.410 ± 0.006 | 0.177 ± 0.014 |
+
+As predicted, about one point below the pre-correction values (0.682 /
+0.531 / 0.418 / 0.189) and within noise of them — an upper bound on the
+select-on-test optimism that also absorbs the 10% of training data ceded to
+the validation split. Micro-F1's run-to-run std drops from ±0.016 to ±0.006:
+selecting checkpoints on a dedicated split removes variance, not just bias.
 
 **Decision.** Expansion at ~0.39 agreement is **not worth folding in**: no
 reliable ranking gain at any size, and a real rare-technique cost at scale.
@@ -560,9 +573,9 @@ and replication on an independent sample before believing a small effect.
 
 ### Still to do
 
-- **Re-establish the numbers of record** (gold-only model) under the corrected
-  protocol: `--val-split 0.1` (default), 5+ seeds; optionally one single-GPU
-  `--deterministic` archival run for the released checkpoint.
+- **Retrain and republish the released checkpoint** under the corrected
+  protocol (numbers of record above); optionally one single-GPU
+  `--deterministic` archival run.
 - **Raise labeler agreement** before any further expansion attempt — stronger
   model, human-reviewed silver labels, or high-confidence slots only — aimed at
   the long tail that `f1_macro` shows is the binding constraint.
