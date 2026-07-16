@@ -432,7 +432,10 @@ def main() -> None:
         action="store_true",
         help="Fully deterministic training (transformers full_determinism: "
         "deterministic CUDA algorithms + CUBLAS workspace config). Makes "
-        "fixed-seed runs bit-reproducible at a modest speed cost.",
+        "fixed-seed runs bit-reproducible, but sets CUDA_LAUNCH_BLOCKING=1, "
+        "which serializes kernel launches: expect an order-of-magnitude "
+        "slowdown, worst with multiple GPUs. Reserve for single-GPU archival "
+        "runs; multi-seed sweeps do not need it.",
     )
     parser.add_argument(
         "--seed",
