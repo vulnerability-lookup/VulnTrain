@@ -668,16 +668,26 @@ mapping deflates — T1505 drops below the 0.5 prediction threshold, T1003
 falls from rank 8 to 17, and the tail technique T1136 (5 training examples)
 from rank 18 to 32.
 
-### Published model repositories
+### Published artifacts
 
-- [`...-roberta-base`](https://huggingface.co/CIRCL/vulnerability-attack-technique-classification-roberta-base)
-  — **the model**: gold-only, corrected protocol, seed 42.
-- [`...-roberta-base-llm-expanded`](https://huggingface.co/CIRCL/vulnerability-attack-technique-classification-roberta-base-llm-expanded)
+DOIs generated via Hugging Face / DataCite on 2026-07-17.
+
+- Dataset [`CIRCL/vulnerability-attack-techniques`](https://huggingface.co/datasets/CIRCL/vulnerability-attack-techniques)
+  — the gold set (1,207 CVEs). DOI:
+  [10.57967/hf/9621](https://doi.org/10.57967/hf/9621)
+- Dataset [`...-attack-techniques-llm-scaling`](https://huggingface.co/datasets/CIRCL/vulnerability-attack-techniques-llm-scaling)
+  — the 984 LLM-labeled rows (the expansion treatment). DOI:
+  [10.57967/hf/9622](https://doi.org/10.57967/hf/9622)
+- Model [`...-classification-roberta-base`](https://huggingface.co/CIRCL/vulnerability-attack-technique-classification-roberta-base)
+  — **the model**: gold-only, corrected protocol, seed 42. DOI:
+  [10.57967/hf/9623](https://doi.org/10.57967/hf/9623)
+- Model [`...-roberta-base-llm-expanded`](https://huggingface.co/CIRCL/vulnerability-attack-technique-classification-roberta-base-llm-expanded)
   — negative-result comparison checkpoint (gold + 984 LLM rows), published
-  so the expansion verdict and the single-CVE example are reproducible.
-- [`...-classification-pilot`](https://huggingface.co/CIRCL/vulnerability-attack-technique-classification-pilot)
+  so the expansion verdict and the single-CVE example are reproducible. DOI:
+  [10.57967/hf/9624](https://doi.org/10.57967/hf/9624)
+- Model [`...-classification-pilot`](https://huggingface.co/CIRCL/vulnerability-attack-technique-classification-pilot)
   — the pilot expansion experiment's checkpoint; superseded, kept only as a
-  stage of the released experiment history.
+  stage of the released experiment history (deliberately no DOI).
 
 ### Still to do
 
