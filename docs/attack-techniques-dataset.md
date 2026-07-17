@@ -287,6 +287,12 @@ So the supervised approach is justified even on ~1,100 training examples.
 The remaining weakness is rare-technique performance (macro-F1 0.20), which
 is what label expansion targets.
 
+> **Note (2026-07-17).** The table above records the *first* trained model
+> (pre-correction protocol, 57-technique vocabulary). The checkpoint
+> published at that repo ID has since been retrained under the corrected
+> protocol (seed 42, `--val-split 0.1`, 53-technique vocabulary); its
+> expected metrics are the corrected-protocol numbers of record below.
+
 ## LLM-assisted label expansion (Phase 2)
 
 `vulntrain/datasets/attack_llm_labeler.py`
@@ -633,11 +639,51 @@ consistency criterion and was still wrong. In this regime you also need a
 selection split that is not the test split, deterministic (or repeated) runs,
 and replication on an independent sample before believing a small effect.
 
+### Inspecting a single CVE
+
+`vulntrain-infer-attack-classification` runs one description (or one CVE
+looked up in the gold dataset, with its gold techniques shown) through a
+trained checkpoint:
+
+```bash
+vulntrain-infer-attack-classification --cve CVE-2021-44077 \
+  --model CIRCL/vulnerability-attack-technique-classification-roberta-base
+
+CVE-2021-44077 (test split)
+gold techniques: T1003, T1027, T1047, T1070, T1087, T1136, T1140, T1190, ...
+rank  technique   prob  pred  gold  name
+   1  T1133       0.72   *          External Remote Services
+   2  T1190       0.72   *     +    Exploit Public-Facing Application
+   3  T1059       0.70   *          Command and Scripting Interpreter
+   4  T1005       0.63   *          Data from Local System
+   5  T1505       0.58   *     +    Server Software Component
+```
+
+Running the same CVE through the published negative-result checkpoint
+[`...-roberta-base-llm-expanded`](https://huggingface.co/CIRCL/vulnerability-attack-technique-classification-roberta-base-llm-expanded)
+(gold + 984 LLM rows; released for reproducibility of the expansion
+experiment, not for use) shows the expansion mechanism on one example: the
+head call T1190 gains confidence (0.72 → 0.75) while the rest of the gold
+mapping deflates — T1505 drops below the 0.5 prediction threshold, T1003
+falls from rank 8 to 17, and the tail technique T1136 (5 training examples)
+from rank 18 to 32.
+
+### Published model repositories
+
+- [`...-roberta-base`](https://huggingface.co/CIRCL/vulnerability-attack-technique-classification-roberta-base)
+  — **the model**: gold-only, corrected protocol, seed 42.
+- [`...-roberta-base-llm-expanded`](https://huggingface.co/CIRCL/vulnerability-attack-technique-classification-roberta-base-llm-expanded)
+  — negative-result comparison checkpoint (gold + 984 LLM rows), published
+  so the expansion verdict and the single-CVE example are reproducible.
+- [`...-classification-pilot`](https://huggingface.co/CIRCL/vulnerability-attack-technique-classification-pilot)
+  — the pilot expansion experiment's checkpoint; superseded, kept only as a
+  stage of the released experiment history.
+
 ### Still to do
 
-- **Retrain and republish the released checkpoint** under the corrected
-  protocol (numbers of record above); optionally one single-GPU
-  `--deterministic` archival run.
+- ~~Retrain and republish the released checkpoint~~ — done 2026-07-17
+  (corrected protocol, seed 42; the `-llm-expanded` companion published at
+  the same time). Optionally one single-GPU `--deterministic` archival run.
 - **Raise labeler agreement** before any further expansion attempt — stronger
   model, human-reviewed silver labels, or high-confidence slots only — aimed at
   the long tail that `f1_macro` shows is the binding constraint.
