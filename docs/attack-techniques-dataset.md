@@ -599,6 +599,28 @@ growing the curated set is the one intervention with measured payoff.
 > set. `--train-fraction` therefore freezes the vocabulary and test set to
 > the full-gold ones.
 
+**Base-model robustness check (2026-07-17).** The same contrast re-run on
+`answerdotai/ModernBERT-base` — ten runs, corrected protocol, five seeds ×
+{gold-only, gold + 984 LLM rows} — deliberately slimmed from a full encoder
+grid to a robustness check:
+
+| encoder | training data | recall@5 | recall@3 | micro-F1 | macro-F1 |
+|---|---|---|---|---|---|
+| roberta-base | gold only | 0.673 ± 0.019 | 0.536 ± 0.032 | 0.410 ± 0.006 | 0.177 ± 0.014 |
+| roberta-base | gold + 984 LLM rows | 0.651 ± 0.022 | 0.534 ± 0.012 | 0.427 ± 0.028 | 0.151 ± 0.014 |
+| ModernBERT-base | gold only | 0.614 ± 0.018 | 0.503 ± 0.017 | 0.416 ± 0.020 | 0.180 ± 0.014 |
+| ModernBERT-base | gold + 984 LLM rows | 0.635 ± 0.029 | 0.524 ± 0.023 | 0.450 ± 0.020 | 0.152 ± 0.015 |
+
+Three take-aways. (1) The newer encoder does **not** raise the ceiling:
+micro/macro-F1 are a wash and both ranking metrics are clearly lower
+(recall@5 −0.059, ≈5 SEM) — `roberta-base` stays the released default.
+(2) The expansion verdict **replicates on a second encoder**: macro-F1 again
+degrades (0.180 → 0.152, ≈3.1 SEM) and recall@5 again shows no reliable gain
+(+0.021, ≈1.4 SEM). (3) The micro-F1 uptick that was borderline on
+roberta-base resolves here (+0.034, ≈2.7 SEM) — LLM rows concentrated on head
+techniques buy example-weighted F1 while eroding the tail, consistent with
+the mechanism above.
+
 **Decision.** Expansion at ~0.39 agreement is **not worth folding in**: no
 reliable ranking gain at any size, and a real rare-technique cost at scale.
 The gold-only model stays the product. The result also vindicates the
@@ -625,5 +647,7 @@ and replication on an independent sample before believing a small effect.
 - **Grow the gold set directly** (more CTID-style curated mappings) — the
   gold scaling curve shows every metric still rising at 972 training rows,
   so this is the intervention with measured payoff.
-- **Base-model comparison** (roberta-large, SecureBERT, ModernBERT) under the
-  new protocol.
+- ~~Base-model comparison~~ — done as a slimmed robustness check
+  (ModernBERT-base, 2026-07-17, table above): roberta-base stays the default,
+  the expansion verdict replicates. A full encoder search (roberta-large,
+  SecureBERT) remains optional future work.
