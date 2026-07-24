@@ -40,8 +40,3 @@ results/
 
 # Paper drafts — kept out of the public repo until formal publication
 papers/
-
-
-# arXiv upload package (regenerate: git archive arxiv-v1 -o arxiv-v1.tar.gz \
-#   main.tex main.bbl cve2capec_noise.pdf scaling.pdf goldcurve.pdf)
-arxiv-*.tar.gz
