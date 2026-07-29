@@ -75,6 +75,8 @@ Check out the full [documentation](docs/) for detailed usage instructions, datas
 
 ## How to cite
 
+For the severity classification work:
+
 Bonhomme, C., & Dulaunoy, A. (2025). VLAI: A RoBERTa-Based Model for Automated Vulnerability Severity Classification (Version 1.4.0) [Computer software]. https://doi.org/10.48550/arXiv.2507.03607
 
 ```bibtex
@@ -85,6 +87,22 @@ Bonhomme, C., & Dulaunoy, A. (2025). VLAI: A RoBERTa-Based Model for Automated V
     eprint={2507.03607},
     archivePrefix={arXiv},
     primaryClass={cs.CR}
+}
+```
+
+For the ATT&CK technique mapping work:
+
+Bonhomme, C., & Dulaunoy, A. (2026). Mapping CVEs to MITRE ATT&CK Techniques: A Curated Gold-Set Classifier and the Limits of LLM-Assisted Label Expansion. https://doi.org/10.48550/arXiv.2607.25572
+
+```bibtex
+@misc{bonhomme2026mappingcvesmitreattck,
+    title={Mapping CVEs to MITRE ATT&CK Techniques: A Curated Gold-Set Classifier and the Limits of LLM-Assisted Label Expansion},
+    author={Cédric Bonhomme and Alexandre Dulaunoy},
+    year={2026},
+    eprint={2607.25572},
+    archivePrefix={arXiv},
+    primaryClass={cs.CR},
+    url={https://arxiv.org/abs/2607.25572},
 }
 ```
 
