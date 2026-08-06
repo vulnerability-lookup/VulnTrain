@@ -235,7 +235,23 @@ for a newer ATT&CK release.
 | `cpes` | list[str] | CPE identifiers (from vulnerability-scores, raw-record fallback) (v2) |
 
 Columns marked (v2) were added on 2026-08-06 for the metadata-ablation
-follow-up work; v1 columns are unchanged (the extension is additive).
+follow-up work; v1 columns are unchanged (the extension is strictly
+additive: identical rows and splits, verified against the published v1).
+Coverage differs sharply by label source — stratify by `label_sources`
+when using these columns as inputs:
+
+| Subset | CVEs | `cvss_vector` | `cwes` | `affected_products` | `cpes` |
+|--------|------|---------------|--------|---------------------|--------|
+| all | 1,207 | 72.0% | 84.3% | 67.4% | 93.2% |
+| `ctid_kev` | 392 | 100% | 100% | 79.8% | 79.1% |
+| `ctid_cve` | 788 | 57.1% | 76.0% | 62.2% | 100% |
+| both | 27 | 100% | 100% | 40.7% | 100% |
+
+The KEV subset owes its 100% CVSS/CWE coverage to the CISA ADP
+Vulnrichment container; the 2021 `ctid_cve` subset's lower coverage is the
+source-truth limit for old CVEs (many have no metrics in either the CNA or
+ADP containers). CVSS versions among the 869 vectors: 677 × v3.1,
+173 × v3.0, 18 × v4.0, 1 × v2.0.
 
 ## Known limitations
 
