@@ -160,7 +160,8 @@ are still valuable, so the dataset keeps them in a clearly separated
 `techniques_derived` column, useful as:
 
 1. a **candidate prior** at inference time (only suggest techniques
-   compatible with the CWE chain);
+   compatible with the CWE chain) — measured 2026-08-06 and **rejected**:
+   see "Derived-prior re-ranking" below;
 2. a **baseline** that any trained model must beat;
 3. a comparison column for studying where the deterministic chain diverges
    from analyst judgment.
@@ -638,6 +639,45 @@ was **necessary but not sufficient** — the five-seed comparison passed its own
 consistency criterion and was still wrong. In this regime you also need a
 selection split that is not the test split, deterministic (or repeated) runs,
 and replication on an independent sample before believing a small effect.
+
+### Derived-prior re-ranking (negative result, 2026-08-06)
+
+The one remaining untested use of the CVE2CAPEC `techniques_derived`
+column was as an **inference-time candidate prior**: re-rank the trained
+classifier's scores toward the techniques the CWE → CAPEC → ATT&CK chain
+considers compatible. The validator now implements this as
+`--prior boost` (add `--prior-alpha` to the logit of every derived
+candidate) and `--prior mask` (candidates rank strictly first — the
+α → ∞ limit), with `--split validation` reconstructing the trainer's
+checkpoint-selection carve-out so α is tuned without touching the test
+split:
+
+```bash
+vulntrain-validate-attack-classification --method classifier \
+  --model CIRCL/vulnerability-attack-technique-classification-roberta-base \
+  --split validation --prior boost --prior-alpha 0.25 0.5 1 2 4 8
+```
+
+**The prior only hurts, at every strength.** On the validation sweep the
+ranking metrics degrade monotonically with α (MRR 0.597 → 0.590 at
+α=0.25 → 0.287 at α=4); the tuned choice is therefore "no prior". On the
+test split (evaluated once, for the record): boost at the mildest α=0.25
+is flat-to-worse on every metric (recall@3 0.518 → 0.509, MRR 0.616 →
+0.608), and mask is catastrophic (recall@5 0.644 → 0.494, MRR 0.616 →
+0.340).
+
+**The mechanism is coverage, not weighting.** The derived candidate sets
+almost never contain the analyst-chosen techniques: at the parent level
+they cover **3.3% of the gold techniques on test** (6.7% on train) — the
+hard ceiling of any mask-style filter. The most frequent derived parents
+(T1134, T1562, T1574 — the table-expansion artifacts quantified above)
+are entirely disjoint from the most frequent gold parents (T1190, T1059,
+T1203, T1068). The chain's noise is not random scatter around the right
+answer; it is **systematically pointed at different techniques than
+analyst judgment**, so no re-weighting can rescue it. This closes the
+last proposed use of the derived labels beyond documentation: the
+`techniques_derived` column remains in the dataset for transparency and
+as a comparison column only.
 
 ### Inspecting a single CVE
 
