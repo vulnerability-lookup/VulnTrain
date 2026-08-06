@@ -1,5 +1,54 @@
 # Changelog
 
+## Release 3.2.0 (2026-08-06)
+
+### What's New
+
+#### CVE → MITRE ATT&CK technique suggestion (new task)
+
+A complete pipeline for suggesting MITRE ATT&CK techniques from vulnerability
+descriptions, documented in `docs/attack-techniques-dataset.md` and in the
+companion paper (arXiv:2607.25572).
+
+- **Gold dataset generation** (`vulntrain-dataset-attack-generation`): builds
+  [CIRCL/vulnerability-attack-techniques](https://huggingface.co/datasets/CIRCL/vulnerability-attack-techniques)
+  from the two hand-curated MITRE CTID mapping projects (attack_to_cve and the
+  Mappings Explorer KEV mappings). Technique IDs are normalized against the
+  current enterprise ATT&CK STIX data (revoked → successor, deprecated
+  dropped), descriptions are joined from CIRCL/vulnerability-scores with a
+  Vulnerability-Lookup API fallback, and the CVE2CAPEC-derived weak labels are
+  included as a separate `techniques_derived` column (not for training).
+- **Multi-label trainer** (`vulntrain-train-attack-classification`): sigmoid
+  head with binary cross-entropy loss, optional per-label positive weights,
+  sub-technique collapsing, and a minimum-examples label vocabulary.
+  Experiment controls: `--seed`, `--val-split` (gold-only checkpoint-selection
+  split), `--deterministic` (with a multi-GPU DataParallel guard),
+  `--train-fraction` (gold-size scaling with frozen vocabulary),
+  `--extra-dataset-id` / `--extra-max-rows` (provenance-tiered LLM-labeled
+  rows folded into train only).
+- **Validators**: `vulntrain-validate-attack-classification` evaluates the
+  trained classifier and a zero-shot SMET-style similarity baseline under the
+  same protocol (recall@k, MRR); `vulntrain-infer-attack-classification` runs
+  a single CVE or description through a checkpoint.
+- **LLM-assisted label expansion** (`vulntrain-dataset-attack-llm-labeling`):
+  validate/expand modes with Ollama and Anthropic backends, structured
+  outputs, gold-agreement benchmarking, and provenance-tiered dataset cards.
+  The controlled experiments concluded that expansion at ~0.39 labeler
+  agreement brings no reliable gain (the released model stays gold-only); the
+  negative-result checkpoint is published for reproducibility.
+
+### Documentation
+
+- New methodology and experiment report: `docs/attack-techniques-dataset.md`
+  (dataset design, evaluation-noise post-mortem, corrected protocol, numbers
+  of record, DOIs of the published artifacts).
+- README: citation of the ATT&CK mapping paper (arXiv:2607.25572).
+
+### Changes
+
+- Updated dependencies.
+
+
 ## Release 3.1.0 (2026-04-06)
 
 ### What's New
