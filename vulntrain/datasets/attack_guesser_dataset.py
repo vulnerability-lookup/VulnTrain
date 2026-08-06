@@ -17,6 +17,14 @@ successor, deprecated ones are dropped).
 Descriptions are joined from the CIRCL/vulnerability-scores dataset, with a
 fallback on the Vulnerability-Lookup API for CVEs missing there.
 
+Structured metadata columns (dataset v2, additive): the raw CVE record is
+fetched from the Vulnerability-Lookup API (cached on disk) for every CVE,
+and the CVSS vector string (highest available version, CNA container
+preferred over ADP), the CWE assignments, and the affected vendor/product
+pairs are extracted from the CNA and ADP (e.g. CISA Vulnrichment)
+containers. CPE lists are joined from CIRCL/vulnerability-scores with a
+fallback on the raw record.
+
 The automatically derived CVE→CWE→CAPEC→ATT&CK chain from the CVE2CAPEC
 project (https://github.com/Galeax/CVE2CAPEC) is included as a separate
 `techniques_derived` column. These labels are far too noisy to train on
@@ -29,15 +37,19 @@ import csv
 import gzip
 import json
 import logging
+import os
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections import Counter
 from pathlib import Path
 from typing import Any, Optional
 
 from datasets import Dataset, DatasetDict, load_dataset
+
+from vulntrain.config import VULNERABILITY_LOOKUP_TOKEN
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -50,7 +62,7 @@ ENTERPRISE_ATTACK_STIX_URL = "https://raw.githubusercontent.com/mitre-attack/att
 CVE2CAPEC_DATABASE_URL = (
     "https://raw.githubusercontent.com/Galeax/CVE2CAPEC/main/database/CVE-{year}.jsonl.gz"
 )
-VULNERABILITY_LOOKUP_API = "https://vulnerability.circl.lu/api/vulnerability/{vuln_id}"
+DEFAULT_VULN_LOOKUP_URL = "https://vulnerability.circl.lu"
 
 MAPPING_TYPE_COLUMNS = {
     "exploitation_technique": "exploitation_techniques",
@@ -209,11 +221,11 @@ def load_cve2capec_techniques(
 
 def load_descriptions(
     dataset_id: str, cve_ids: set[str]
-) -> dict[str, tuple[str, str]]:
-    """Join (title, description) from the given Hugging Face dataset."""
+) -> dict[str, tuple[str, str, list[str]]]:
+    """Join (title, description, cpes) from the given Hugging Face dataset."""
     logger.info(f"Loading descriptions from {dataset_id}")
     dataset = load_dataset(dataset_id)
-    found: dict[str, tuple[str, str]] = {}
+    found: dict[str, tuple[str, str, list[str]]] = {}
     for split in dataset.values():
         indices = [
             i
@@ -221,20 +233,149 @@ def load_descriptions(
             if vuln_id in cve_ids and vuln_id not in found
         ]
         for row in split.select(indices):
-            found[row["id"]] = (row.get("title") or "", row.get("description") or "")
+            found[row["id"]] = (
+                row.get("title") or "",
+                row.get("description") or "",
+                row.get("cpes") or [],
+            )
     return found
 
 
-def fetch_description_from_api(vuln_id: str) -> Optional[tuple[str, str]]:
-    """Fallback: fetch a single vulnerability from the Vulnerability-Lookup API."""
-    url = VULNERABILITY_LOOKUP_API.format(vuln_id=vuln_id)
-    request = urllib.request.Request(url, headers={"User-Agent": "VulnTrain"})
-    try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            record = json.load(response)
-    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as e:
-        logger.warning(f"API lookup failed for {vuln_id}: {e}")
-        return None
+def fetch_raw_record(
+    vuln_id: str, cache_dir: Path, api_url: str, token: str = ""
+) -> Optional[dict[str, Any]]:
+    """Fetch a raw CVE record from the Vulnerability-Lookup API, cached on
+    disk so re-runs never hit the network. Sends the API token as X-API-KEY
+    when configured (higher rate limits); honors Retry-After on HTTP 429."""
+    cache_path = cache_dir / "vuln-records" / f"{vuln_id}.json"
+    if cache_path.exists():
+        cached: dict[str, Any] = json.loads(cache_path.read_text(encoding="utf-8"))
+        return cached
+
+    headers = {"User-Agent": "VulnTrain"}
+    if token:
+        headers["X-API-KEY"] = token
+    url = f"{api_url.rstrip('/')}/api/vulnerability/{vuln_id}"
+    local = urllib.parse.urlparse(url).hostname in {"127.0.0.1", "localhost", "::1"}
+    request = urllib.request.Request(url, headers=headers)
+    for attempt in range(5):
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                record: dict[str, Any] = json.load(response)
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < 4:
+                delay = min(float(e.headers.get("Retry-After") or 60), 120.0)
+                logger.info(
+                    f"Rate limited by Vulnerability-Lookup on {vuln_id}, "
+                    f"waiting {delay:.0f}s (configure an API token in "
+                    f"conf.py or VULNERABILITY_LOOKUP_TOKEN to avoid this)"
+                )
+                time.sleep(delay)
+                continue
+            logger.warning(f"Vulnerability-Lookup failed for {vuln_id}: {e}")
+            return None
+        except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as e:
+            logger.warning(f"Vulnerability-Lookup failed for {vuln_id}: {e}")
+            return None
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(record), encoding="utf-8")
+        if not local:
+            time.sleep(1.0)  # stay polite; only on actual network fetches
+        return record
+    return None
+
+
+def iter_containers(record: dict[str, Any]) -> list[dict[str, Any]]:
+    """CNA container first, then ADP containers (CISA Vulnrichment etc.)."""
+    containers = record.get("containers", {})
+    result = []
+    if cna := containers.get("cna"):
+        result.append(cna)
+    result.extend(containers.get("adp") or [])
+    return result
+
+
+CVSS_VERSION_PRIORITY = ["4.0", "3.1", "3.0", "2.0"]
+
+
+def extract_cvss_vector(record: dict[str, Any]) -> tuple[str, str]:
+    """Return (vector string, version) — the highest CVSS version found,
+    with the CNA container taking precedence over ADP within a version."""
+    best = ("", "")
+    best_rank = len(CVSS_VERSION_PRIORITY)
+    for container in iter_containers(record):
+        for metric in container.get("metrics") or []:
+            for key, value in metric.items():
+                if not key.startswith("cvssV") or not isinstance(value, dict):
+                    continue
+                vector = value.get("vectorString") or ""
+                version = value.get("version") or ""
+                if not vector or version not in CVSS_VERSION_PRIORITY:
+                    continue
+                rank = CVSS_VERSION_PRIORITY.index(version)
+                if rank < best_rank:
+                    best, best_rank = (vector, version), rank
+    return best
+
+
+def extract_cwes(record: dict[str, Any]) -> list[str]:
+    """CWE assignments from the CNA and ADP problemTypes, as display strings
+    ('CWE-79 Cross-site Scripting'); plain-text weakness descriptions without
+    a CWE id are kept as-is. Deduplicated by CWE id (or lowercased text)."""
+    found: dict[str, str] = {}
+    for container in iter_containers(record):
+        for problem in container.get("problemTypes") or []:
+            for description in problem.get("descriptions") or []:
+                text = (description.get("description") or "").strip()
+                cwe_id = (description.get("cweId") or "").strip()
+                if text.lower() in {"n/a", "noinfo", "other", "not applicable"}:
+                    text = ""
+                if cwe_id and text and not text.startswith(cwe_id):
+                    display = f"{cwe_id} {text}"
+                else:
+                    display = text or cwe_id
+                if not display:
+                    continue
+                found.setdefault(cwe_id or display.lower(), display)
+    # Drop plain-text entries duplicated by an id-bearing one (e.g. a CNA
+    # 'Deserialization of Untrusted Data' next to the ADP 'CWE-502 ...').
+    id_texts = " || ".join(
+        display.lower() for key, display in found.items() if key.startswith("CWE-")
+    )
+    return [
+        display
+        for key, display in found.items()
+        if key.startswith("CWE-") or display.lower() not in id_texts
+    ]
+
+
+def extract_affected_products(record: dict[str, Any]) -> list[str]:
+    """'vendor product' pairs from the affected sections ('n/a' filtered)."""
+    pairs: dict[str, None] = {}
+    for container in iter_containers(record):
+        for affected in container.get("affected") or []:
+            vendor = (affected.get("vendor") or "").strip()
+            product = (affected.get("product") or "").strip()
+            if vendor.lower() == "n/a":
+                vendor = ""
+            if not product or product.lower() == "n/a":
+                continue
+            pairs.setdefault(f"{vendor} {product}".strip(), None)
+    return list(pairs)
+
+
+def extract_record_cpes(record: dict[str, Any]) -> list[str]:
+    """CPE fallback from the raw record's affected sections."""
+    cpes: dict[str, None] = {}
+    for container in iter_containers(record):
+        for affected in container.get("affected") or []:
+            for cpe in affected.get("cpes") or []:
+                cpes.setdefault(cpe.lower(), None)
+    return list(cpes)
+
+
+def extract_description(record: dict[str, Any]) -> Optional[tuple[str, str]]:
+    """Fallback (title, description) from a raw record's CNA container."""
     cna = record.get("containers", {}).get("cna", {})
     title = cna.get("title", "")
     description = next(
@@ -294,17 +435,32 @@ def build_dataset(args: argparse.Namespace) -> DatasetDict:
     derived = {} if args.skip_cve2capec else load_cve2capec_techniques(cache_dir, cve_ids)
     descriptions = load_descriptions(args.description_dataset, cve_ids)
 
+    logger.info(
+        f"Fetching raw records for {len(cve_ids)} CVEs from the "
+        "Vulnerability-Lookup API (disk-cached; only uncached CVEs hit the "
+        "network)"
+    )
+    token = os.environ.get("VULNERABILITY_LOOKUP_TOKEN", "") or VULNERABILITY_LOOKUP_TOKEN
+    records: dict[str, dict[str, Any]] = {}
+    for index, vuln_id in enumerate(sorted(cve_ids), start=1):
+        record = fetch_raw_record(vuln_id, cache_dir, args.vuln_lookup_url, token)
+        if record:
+            records[vuln_id] = record
+        if index % 200 == 0:
+            logger.info(f"  {index}/{len(cve_ids)} records fetched")
+    logger.info(f"Raw records available for {len(records)}/{len(cve_ids)} CVEs")
+
     missing = sorted(cve_ids - set(descriptions))
     if missing:
         logger.info(
             f"{len(missing)} CVEs missing from {args.description_dataset}, "
-            "falling back on the Vulnerability-Lookup API"
+            "falling back on the raw records"
         )
         for vuln_id in missing:
-            result = fetch_description_from_api(vuln_id)
-            if result:
-                descriptions[vuln_id] = result
-            time.sleep(0.5)
+            if vuln_id in records:
+                result = extract_description(records[vuln_id])
+                if result:
+                    descriptions[vuln_id] = (result[0], result[1], [])
 
     rows = []
     skipped_no_description = 0
@@ -320,7 +476,9 @@ def build_dataset(args: argparse.Namespace) -> DatasetDict:
         if cve_id not in descriptions:
             skipped_no_description += 1
             continue
-        title, description = descriptions[cve_id]
+        title, description, cpes = descriptions[cve_id]
+        record = records.get(cve_id, {})
+        cvss_vector, cvss_version = extract_cvss_vector(record)
         rows.append(
             {
                 "id": cve_id,
@@ -333,6 +491,11 @@ def build_dataset(args: argparse.Namespace) -> DatasetDict:
                 "techniques_derived": derived.get(cve_id, []),
                 "label_sources": sorted(entry["label_sources"]),
                 "attack_version": normalizer.version,
+                "cvss_vector": cvss_vector,
+                "cvss_version": cvss_version,
+                "cwes": extract_cwes(record),
+                "affected_products": extract_affected_products(record),
+                "cpes": cpes or extract_record_cpes(record),
             }
         )
     if skipped_no_technique:
@@ -373,6 +536,20 @@ def print_statistics(rows: list[dict[str, Any]]) -> None:
         print(f"  {technique}: {count}")
     supported = sum(1 for c in technique_counts.values() if c >= 5)
     print(f"Techniques with >= 5 examples: {supported}")
+
+    metadata_fields = ["cvss_vector", "cwes", "affected_products", "cpes"]
+    print("Metadata coverage (overall / per label source):")
+    groups: dict[str, list[dict[str, Any]]] = {"all": rows}
+    for row in rows:
+        groups.setdefault("+".join(row["label_sources"]), []).append(row)
+    for name, group in groups.items():
+        coverage = " ".join(
+            f"{field}={sum(1 for r in group if r[field]) / len(group):.1%}"
+            for field in metadata_fields
+        )
+        print(f"  {name} (n={len(group)}): {coverage}")
+    cvss_versions = Counter(row["cvss_version"] for row in rows if row["cvss_version"])
+    print(f"CVSS versions: {dict(cvss_versions)}")
     print(f"{'=' * 60}\n")
 
 
@@ -405,6 +582,15 @@ def main() -> None:
         "--cache-dir",
         default="~/.cache/vulntrain",
         help="Directory where downloaded source files are cached.",
+    )
+    parser.add_argument(
+        "--vuln-lookup-url",
+        dest="vuln_lookup_url",
+        default=DEFAULT_VULN_LOOKUP_URL,
+        help="Base URL of the Vulnerability-Lookup instance used for raw CVE "
+        "records (e.g. http://127.0.0.1:5000 for a local instance). An API "
+        "token can be set in conf.py (VULNERABILITY_LOOKUP_TOKEN) or via the "
+        "environment variable of the same name.",
     )
     parser.add_argument(
         "--cve-mappings-url",

@@ -42,3 +42,8 @@ try:
     GITHUB_TOKEN = conf.GITHUB_TOKEN
 except Exception:
     GITHUB_TOKEN = ""
+
+try:
+    VULNERABILITY_LOOKUP_TOKEN = conf.VULNERABILITY_LOOKUP_TOKEN
+except Exception:
+    VULNERABILITY_LOOKUP_TOKEN = ""

@@ -197,12 +197,18 @@ are still valuable, so the dataset keeps them in a clearly separated
    `attack_version` column.
 3. **Merge** the two sources per CVE (union of technique sets, provenance
    kept in `label_sources`).
-4. **Join descriptions** from `CIRCL/vulnerability-scores`; CVEs missing
-   there are fetched from the
-   [Vulnerability-Lookup API](https://vulnerability.circl.lu) as a fallback.
-5. **Attach** the CVE2CAPEC derived techniques as `techniques_derived`
+4. **Join descriptions** (and CPE lists) from `CIRCL/vulnerability-scores`;
+   CVEs missing there fall back on the raw record.
+5. **Fetch the raw CVE record** for every CVE from the
+   [Vulnerability-Lookup API](https://vulnerability.circl.lu) (disk-cached
+   in `~/.cache/vulntrain/vuln-records/`) and extract the structured
+   metadata columns (v2): the CVSS vector (highest available version, CNA
+   container preferred over ADP within a version — the CISA ADP
+   Vulnrichment container supplies vectors and CWEs for many older CVEs),
+   the CWE assignments, and the affected vendor/product pairs.
+6. **Attach** the CVE2CAPEC derived techniques as `techniques_derived`
    (skippable with `--skip-cve2capec`).
-6. **Split** 90/10 into train/test and optionally push to the Hub.
+7. **Split** 90/10 into train/test and optionally push to the Hub.
 
 Note that the KEV mappings URL points to a dated release directory; pass
 `--kev-mappings-url` (or update the constant) when CTID publishes mappings
@@ -222,6 +228,14 @@ for a newer ATT&CK release.
 | `techniques_derived` | list[str] | CVE2CAPEC weak labels — **not** for training |
 | `label_sources` | list[str] | `ctid_cve` and/or `ctid_kev` |
 | `attack_version` | str | Enterprise ATT&CK version the IDs are normalized to |
+| `cvss_vector` | str | CVSS vector string, highest available version (v2, empty if none) |
+| `cvss_version` | str | Version of `cvss_vector` (`4.0`/`3.1`/`3.0`/`2.0`, v2) |
+| `cwes` | list[str] | CWE assignments, e.g. `CWE-502 Deserialization of Untrusted Data` (v2) |
+| `affected_products` | list[str] | `vendor product` pairs from the CVE record (v2) |
+| `cpes` | list[str] | CPE identifiers (from vulnerability-scores, raw-record fallback) (v2) |
+
+Columns marked (v2) were added on 2026-08-06 for the metadata-ablation
+follow-up work; v1 columns are unchanged (the extension is additive).
 
 ## Known limitations
 

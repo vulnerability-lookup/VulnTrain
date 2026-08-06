@@ -4,3 +4,6 @@ valkey_port = 10002
 HF_TOKEN = ""
 
 GITHUB_TOKEN = ""
+
+# API token for the Vulnerability-Lookup instance (higher API rate limits).
+VULNERABILITY_LOOKUP_TOKEN = ""
