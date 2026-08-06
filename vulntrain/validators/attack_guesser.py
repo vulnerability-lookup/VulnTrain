@@ -14,6 +14,13 @@ same ranking metrics), so their numbers are directly comparable:
 
 The fine-tuned classifier has to beat the zero-shot baseline to justify
 existing (see docs/attack-techniques-dataset.md).
+
+The classifier method can additionally re-rank with the CVE2CAPEC-derived
+candidate prior (the dataset's ``techniques_derived`` column, never used
+for training): ``--prior boost`` adds ``--prior-alpha`` to the logit of
+every technique in a CVE's derived candidate set; ``--prior mask`` is the
+limiting case (candidate techniques rank strictly before the rest). Tune
+alpha on the validation carve-out (``--split validation``), never on test.
 """
 
 import argparse
@@ -125,13 +132,25 @@ def ranking_metrics(
 
 
 def prepare_evaluation_data(
-    dataset_id: str, split: str, min_examples: int, vocabulary: Optional[list[str]]
-) -> tuple[list[str], list[str], list[set[str]], list[str]]:
-    """Return (texts, ids, gold technique sets, vocabulary) for evaluation.
+    dataset_id: str,
+    split: str,
+    min_examples: int,
+    vocabulary: Optional[list[str]],
+    val_split: float = 0.1,
+    val_seed: int = 42,
+) -> tuple[list[str], list[str], list[set[str]], list[set[str]], list[str]]:
+    """Return (texts, ids, gold sets, derived candidate sets, vocabulary).
 
     Gold sub-techniques are collapsed to parents and restricted to the
     vocabulary; examples with no in-vocabulary technique are skipped, exactly
-    like the trainer does.
+    like the trainer does. The derived sets are the CVE2CAPEC
+    ``techniques_derived`` candidates, collapsed to parents (NOT restricted
+    to the vocabulary — the restriction happens where they are used).
+
+    ``split="validation"`` reconstructs the trainer's checkpoint-selection
+    carve-out (train_test_split of the train split with ``val_split`` and
+    ``val_seed``), so prior hyper-parameters can be tuned without touching
+    the test split.
     """
     dataset = load_dataset(dataset_id)
     if vocabulary is None:
@@ -140,11 +159,22 @@ def prepare_evaluation_data(
         )
     vocabulary_set = set(vocabulary)
 
+    if split == "validation" and "validation" not in dataset:
+        carve = dataset["train"].train_test_split(test_size=val_split, seed=val_seed)
+        examples = carve["test"]
+        logger.info(
+            f"Reconstructed the validation carve-out from train "
+            f"(val_split={val_split}, seed={val_seed}): {len(examples)} examples"
+        )
+    else:
+        examples = dataset[split]
+
     texts: list[str] = []
     vuln_ids: list[str] = []
     gold_sets: list[set[str]] = []
+    derived_sets: list[set[str]] = []
     skipped = 0
-    for example in dataset[split]:
+    for example in examples:
         gold = {
             collapse_subtechnique(technique) for technique in example["techniques"]
         } & vocabulary_set
@@ -154,16 +184,62 @@ def prepare_evaluation_data(
         texts.append(f"{example['title']}\n{example['description']}".strip())
         vuln_ids.append(example["id"])
         gold_sets.append(gold)
+        derived_sets.append(
+            {
+                collapse_subtechnique(technique)
+                for technique in example.get("techniques_derived") or []
+            }
+        )
     logger.info(
         f"Evaluating on {len(texts)} {split} examples "
         f"({skipped} skipped: no in-vocabulary technique), "
         f"{len(vocabulary)} candidate techniques"
     )
-    return texts, vuln_ids, gold_sets, vocabulary
+    return texts, vuln_ids, gold_sets, derived_sets, vocabulary
+
+
+def candidate_prior_diagnostics(
+    gold_sets: list[set[str]], derived_sets: list[set[str]], vocabulary_set: set[str]
+) -> None:
+    """Log how informative the CVE2CAPEC candidate sets are on this split."""
+    in_vocab = [derived & vocabulary_set for derived in derived_sets]
+    non_empty = sum(1 for candidates in in_vocab if candidates)
+    sizes = [len(candidates) for candidates in in_vocab if candidates]
+    coverages = [
+        len(gold & candidates) / len(gold)
+        for gold, candidates in zip(gold_sets, in_vocab)
+    ]
+    logger.info(
+        f"Derived prior: {non_empty}/{len(derived_sets)} examples with "
+        f"in-vocabulary candidates; candidate-set size "
+        f"mean={np.mean(sizes):.1f} median={np.median(sizes):.0f}"
+        if sizes
+        else "Derived prior: no in-vocabulary candidates on this split"
+    )
+    logger.info(
+        f"Derived prior: candidate sets cover {np.mean(coverages):.3f} of the "
+        f"gold techniques on average (the ceiling of the mask variant)"
+    )
+
+
+def fuse_with_prior(
+    logits: np.ndarray,
+    derived_sets: list[set[str]],
+    vocabulary: list[str],
+    alpha: float,
+) -> np.ndarray:
+    """score = logit + alpha * 1[technique in the CVE's derived candidates]."""
+    label_to_id = {label: index for index, label in enumerate(vocabulary)}
+    member = np.zeros_like(logits)
+    for row, derived in enumerate(derived_sets):
+        for label in derived:
+            if label in label_to_id:
+                member[row, label_to_id[label]] = 1.0
+    return logits + alpha * member
 
 
 def evaluate_similarity(args: argparse.Namespace) -> dict[str, float]:
-    texts, _, gold_sets, vocabulary = prepare_evaluation_data(
+    texts, _, gold_sets, _, vocabulary = prepare_evaluation_data(
         args.dataset_id, args.split, args.min_examples, vocabulary=None
     )
 
@@ -194,7 +270,18 @@ def evaluate_similarity(args: argparse.Namespace) -> dict[str, float]:
     return ranking_metrics(ranked_labels, gold_sets)
 
 
-def evaluate_classifier(args: argparse.Namespace) -> dict[str, float]:
+MASK_ALPHA = 1e6  # far above any logit magnitude: candidates rank strictly first
+
+
+def rank_and_score(
+    scores: np.ndarray, vocabulary: list[str], gold_sets: list[set[str]]
+) -> dict[str, float]:
+    ranked_indices = np.argsort(scores, axis=1)[:, ::-1]
+    ranked_labels = [[vocabulary[index] for index in row] for row in ranked_indices]
+    return ranking_metrics(ranked_labels, gold_sets)
+
+
+def evaluate_classifier(args: argparse.Namespace) -> dict[str, dict[str, float]]:
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     model = AutoModelForSequenceClassification.from_pretrained(args.model)
     model.eval()
@@ -204,7 +291,7 @@ def evaluate_classifier(args: argparse.Namespace) -> dict[str, float]:
     id_to_label = model.config.id2label
     vocabulary = [id_to_label[index] for index in sorted(id_to_label)]
 
-    texts, _, gold_sets, _ = prepare_evaluation_data(
+    texts, _, gold_sets, derived_sets, _ = prepare_evaluation_data(
         args.dataset_id, args.split, args.min_examples, vocabulary=vocabulary
     )
 
@@ -220,16 +307,13 @@ def evaluate_classifier(args: argparse.Namespace) -> dict[str, float]:
         with torch.no_grad():
             output = model(**batch)
         all_logits.append(output.logits)
-    logits = torch.cat(all_logits)
+    logits = torch.cat(all_logits).numpy()
 
-    ranked_indices = torch.argsort(logits, dim=1, descending=True).numpy()
-    ranked_labels = [
-        [vocabulary[index] for index in row] for row in ranked_indices
-    ]
-    metrics = ranking_metrics(ranked_labels, gold_sets)
+    metrics = rank_and_score(logits, vocabulary, gold_sets)
 
-    # Threshold metrics, as reported during training.
-    predictions = (logits.numpy() >= 0.0).astype(int)
+    # Threshold metrics, as reported during training (raw logits only: the
+    # 0.5-probability threshold is meaningless on prior-shifted scores).
+    predictions = (logits >= 0.0).astype(int)
     gold_matrix = np.zeros_like(predictions)
     label_to_id = {label: index for index, label in enumerate(vocabulary)}
     for row, gold in enumerate(gold_sets):
@@ -243,7 +327,16 @@ def evaluate_classifier(args: argparse.Namespace) -> dict[str, float]:
     metrics["f1_macro"] = f1_score(
         gold_matrix, predictions, average="macro", zero_division=0
     )
-    return metrics
+    results = {"classifier": metrics}
+
+    if args.prior != "none":
+        candidate_prior_diagnostics(gold_sets, derived_sets, set(vocabulary))
+        alphas = [MASK_ALPHA] if args.prior == "mask" else args.prior_alpha
+        for alpha in alphas:
+            fused = fuse_with_prior(logits, derived_sets, vocabulary, alpha)
+            name = "mask" if args.prior == "mask" else f"boost(alpha={alpha:g})"
+            results[name] = rank_and_score(fused, vocabulary, gold_sets)
+    return results
 
 
 def main() -> None:
@@ -266,7 +359,27 @@ def main() -> None:
     parser.add_argument(
         "--split",
         default="test",
-        help="Dataset split to evaluate on.",
+        help="Dataset split to evaluate on. 'validation' reconstructs the "
+        "trainer's checkpoint-selection carve-out (val_split 0.1, seed 42) "
+        "for tuning prior hyper-parameters without touching the test split.",
+    )
+    parser.add_argument(
+        "--prior",
+        choices=["none", "boost", "mask"],
+        default="none",
+        help="Re-rank classifier scores with the CVE2CAPEC-derived candidate "
+        "prior (techniques_derived): 'boost' adds --prior-alpha to candidate "
+        "logits, 'mask' ranks candidates strictly first (the alpha->inf "
+        "limit). Classifier method only.",
+    )
+    parser.add_argument(
+        "--prior-alpha",
+        dest="prior_alpha",
+        type=float,
+        nargs="+",
+        default=[1.0],
+        help="Boost value(s) added to candidate logits; pass several to sweep "
+        "(tune on --split validation, then run the chosen value on test once).",
     )
     parser.add_argument(
         "--embedding-model",
@@ -303,18 +416,22 @@ def main() -> None:
     if args.method == "classifier":
         if not args.model:
             parser.error("--method classifier requires --model")
-        metrics = evaluate_classifier(args)
+        results = evaluate_classifier(args)
     else:
-        metrics = evaluate_similarity(args)
+        if args.prior != "none":
+            parser.error("--prior requires --method classifier")
+        results = {"similarity": evaluate_similarity(args)}
 
     print(f"\n{'=' * 60}")
-    print(f"Method: {args.method}")
+    print(f"Method: {args.method}  (split: {args.split})")
     if args.method == "similarity":
         print(f"Embedding model: {args.embedding_model}")
     else:
         print(f"Model: {args.model}")
-    for name, value in metrics.items():
-        print(f"  {name}: {value:.4f}")
+    for config, metrics in results.items():
+        print(f"[{config}]")
+        for name, value in metrics.items():
+            print(f"  {name}: {value:.4f}")
     print(f"{'=' * 60}\n")
 
 
