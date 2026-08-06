@@ -360,6 +360,9 @@ def extract_affected_products(record: dict[str, Any]) -> list[str]:
                 vendor = ""
             if not product or product.lower() == "n/a":
                 continue
+            # Some CNAs repeat the vendor inside the product name.
+            if vendor and product.lower().startswith(vendor.lower()):
+                vendor = ""
             pairs.setdefault(f"{vendor} {product}".strip(), None)
     return list(pairs)
 

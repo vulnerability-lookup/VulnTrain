@@ -38,6 +38,7 @@ from transformers import (
     AutoTokenizer,
 )
 
+from vulntrain.attack_metadata import build_input_text
 from vulntrain.datasets.attack_guesser_dataset import (
     ENTERPRISE_ATTACK_STIX_URL,
     download_file,
@@ -138,9 +139,12 @@ def prepare_evaluation_data(
     vocabulary: Optional[list[str]],
     val_split: float = 0.1,
     val_seed: int = 42,
+    metadata_signals: Optional[list[str]] = None,
 ) -> tuple[list[str], list[str], list[set[str]], list[set[str]], list[str]]:
     """Return (texts, ids, gold sets, derived candidate sets, vocabulary).
 
+    Texts are built with the same ``build_input_text`` as the trainer,
+    appending the given verbalized metadata signals (none by default).
     Gold sub-techniques are collapsed to parents and restricted to the
     vocabulary; examples with no in-vocabulary technique are skipped, exactly
     like the trainer does. The derived sets are the CVE2CAPEC
@@ -181,7 +185,7 @@ def prepare_evaluation_data(
         if not gold:
             skipped += 1
             continue
-        texts.append(f"{example['title']}\n{example['description']}".strip())
+        texts.append(build_input_text(example, metadata_signals or []))
         vuln_ids.append(example["id"])
         gold_sets.append(gold)
         derived_sets.append(
@@ -291,8 +295,17 @@ def evaluate_classifier(args: argparse.Namespace) -> dict[str, dict[str, float]]
     id_to_label = model.config.id2label
     vocabulary = [id_to_label[index] for index in sorted(id_to_label)]
 
+    # Build inputs exactly as the model was trained (recorded by the trainer).
+    metadata_signals = list(getattr(model.config, "metadata_inputs", []) or [])
+    if metadata_signals:
+        logger.info(f"Model was trained with metadata inputs: {metadata_signals}")
+
     texts, _, gold_sets, derived_sets, _ = prepare_evaluation_data(
-        args.dataset_id, args.split, args.min_examples, vocabulary=vocabulary
+        args.dataset_id,
+        args.split,
+        args.min_examples,
+        vocabulary=vocabulary,
+        metadata_signals=metadata_signals,
     )
 
     all_logits = []

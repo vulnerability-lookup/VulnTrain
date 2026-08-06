@@ -16,12 +16,13 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import torch
 from datasets import load_dataset
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+from vulntrain.attack_metadata import build_input_text
 from vulntrain.datasets.attack_guesser_dataset import (
     ENTERPRISE_ATTACK_STIX_URL,
     download_file,
@@ -53,9 +54,9 @@ def load_technique_names(stix_path: Path) -> dict[str, str]:
     return names
 
 
-def lookup_cve(dataset_id: str, cve_id: str) -> tuple[str, str, str, set[str]]:
-    """Return (split, title, description, collapsed gold techniques) for a
-    CVE in the gold dataset, or exit if it is not there."""
+def lookup_cve(dataset_id: str, cve_id: str) -> tuple[str, dict[str, Any], set[str]]:
+    """Return (split, full example, collapsed gold techniques) for a CVE in
+    the gold dataset, or exit if it is not there."""
     dataset = load_dataset(dataset_id)
     for split in dataset:
         for example in dataset[split]:
@@ -64,7 +65,7 @@ def lookup_cve(dataset_id: str, cve_id: str) -> tuple[str, str, str, set[str]]:
                     collapse_subtechnique(technique)
                     for technique in example["techniques"]
                 }
-                return str(split), example["title"], example["description"], gold
+                return str(split), dict(example), gold
     raise SystemExit(
         f"{cve_id} is not in {dataset_id}; pass its text with --description "
         "instead (no gold techniques will be shown)."
@@ -121,10 +122,10 @@ def main() -> None:
         parser.error("pass exactly one of --cve or --description")
 
     gold: Optional[set[str]] = None
-    title, description = args.title, args.description
+    example: dict[str, Any] = {"title": args.title, "description": args.description}
     header = "ad-hoc description"
     if args.cve:
-        split, title, description, gold = lookup_cve(args.dataset_id, args.cve)
+        split, example, gold = lookup_cve(args.dataset_id, args.cve)
         header = f"{args.cve} ({split} split)"
 
     names: dict[str, str] = {}
@@ -145,7 +146,17 @@ def main() -> None:
         model.config.id2label[index] for index in sorted(model.config.id2label)
     ]
 
-    text = f"{title}\n{description}".strip()
+    # Build the input exactly as during training (signals recorded in the
+    # model config). For an ad-hoc description the metadata is unknown and
+    # renders as such, matching the training-time missing-value policy.
+    metadata_signals = list(getattr(model.config, "metadata_inputs", []) or [])
+    if metadata_signals:
+        logger.info(f"Model was trained with metadata inputs: {metadata_signals}")
+        if not args.cve:
+            logger.warning(
+                "Ad-hoc description: metadata signals render as 'unknown'"
+            )
+    text = build_input_text(example, metadata_signals)
     batch = tokenizer(
         text, truncation=True, max_length=512, return_tensors="pt"
     )
