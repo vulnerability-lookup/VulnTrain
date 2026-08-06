@@ -40,6 +40,7 @@ from transformers import (
     TrainingArguments,
 )
 
+from vulntrain.attack_metadata import METADATA_SIGNALS, build_input_text
 from vulntrain.utils import push_emissions_report
 
 logging.basicConfig(level=logging.INFO)
@@ -152,6 +153,7 @@ def train(
     val_split: float = 0.1,
     deterministic: bool = False,
     push: bool = True,
+    metadata_signals: Optional[list[str]] = None,
 ) -> None:
     # full_determinism sets CUDA_LAUNCH_BLOCKING=1, which deadlocks
     # multi-GPU DataParallel on the first training step (observed on
@@ -277,10 +279,19 @@ def train(
         max_length = min(tokenizer.model_max_length, 8192)
     logger.info(f"Tokenizing with max_length={max_length}")
 
+    signals = sorted(metadata_signals or [])
+    logger.info(
+        f"Metadata input signals: {signals or 'none (description-only, v1 input)'}"
+    )
+
     def tokenize_function(examples: dict[str, Any]) -> Any:
+        n = len(examples["title"])
+        columns = examples.keys()
         texts = [
-            f"{title}\n{description}".strip()
-            for title, description in zip(examples["title"], examples["description"])
+            build_input_text(
+                {column: examples[column][i] for column in columns}, signals
+            )
+            for i in range(n)
         ]
         # No padding here: DataCollatorWithPadding pads each batch dynamically.
         return tokenizer(texts, truncation=True, max_length=max_length)
@@ -349,6 +360,8 @@ def train(
         model.config.label2id = label_to_id
         model.config.num_labels = len(label_vocabulary)
         model.config.problem_type = "multi_label_classification"
+        # Recorded so the validator/inference build identical input text.
+        model.config.metadata_inputs = signals
         model.config.save_pretrained(model_save_dir)
 
     # Always report final metrics on the held-out test split (during training
@@ -400,6 +413,18 @@ def main() -> None:
         "--model-save-dir",
         default="results",
         help="Directory to save the trained model locally.",
+    )
+    parser.add_argument(
+        "--metadata",
+        nargs="+",
+        choices=list(METADATA_SIGNALS) + ["all"],
+        default=[],
+        help="Structured metadata signals appended (verbalized) to the input "
+        "text: 'cvss' (vector components), 'cwe', 'products' (affected "
+        "products + CPE vendor/product), 'derived' (CVE2CAPEC candidate "
+        "techniques), or 'all'. Default: none (description-only, v1 input). "
+        "The enabled signals are stored in the model config so the validator "
+        "builds identical inputs.",
     )
     parser.add_argument(
         "--min-examples",
@@ -539,6 +564,9 @@ def main() -> None:
             val_split=args.val_split,
             deterministic=args.deterministic,
             push=not args.no_push,
+            metadata_signals=(
+                list(METADATA_SIGNALS) if "all" in args.metadata else args.metadata
+            ),
         )
 
 
