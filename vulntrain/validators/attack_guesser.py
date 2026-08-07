@@ -141,10 +141,16 @@ def prepare_evaluation_data(
     val_seed: int = 42,
     metadata_signals: Optional[list[str]] = None,
 ) -> tuple[
-    list[str], list[str], list[set[str]], list[set[str]], list[str], list[str]
+    list[str],
+    list[str],
+    list[set[str]],
+    list[set[str]],
+    list[str],
+    list[str],
+    list[bool],
 ]:
     """Return (texts, ids, gold sets, derived candidate sets, vocabulary,
-    label-source groups).
+    label-source groups, gold-CWE presence flags).
 
     Texts are built with the same ``build_input_text`` as the trainer,
     appending the given verbalized metadata signals (none by default).
@@ -181,6 +187,7 @@ def prepare_evaluation_data(
     gold_sets: list[set[str]] = []
     derived_sets: list[set[str]] = []
     source_groups: list[str] = []
+    cwe_flags: list[bool] = []
     skipped = 0
     for example in examples:
         gold = {
@@ -199,12 +206,21 @@ def prepare_evaluation_data(
             }
         )
         source_groups.append("+".join(sorted(example.get("label_sources") or [])))
+        cwe_flags.append(bool(example.get("cwes")))
     logger.info(
         f"Evaluating on {len(texts)} {split} examples "
         f"({skipped} skipped: no in-vocabulary technique), "
         f"{len(vocabulary)} candidate techniques"
     )
-    return texts, vuln_ids, gold_sets, derived_sets, vocabulary, source_groups
+    return (
+        texts,
+        vuln_ids,
+        gold_sets,
+        derived_sets,
+        vocabulary,
+        source_groups,
+        cwe_flags,
+    )
 
 
 def candidate_prior_diagnostics(
@@ -248,7 +264,7 @@ def fuse_with_prior(
 
 
 def evaluate_similarity(args: argparse.Namespace) -> dict[str, float]:
-    texts, _, gold_sets, _, vocabulary, _ = prepare_evaluation_data(
+    texts, _, gold_sets, _, vocabulary, _, _ = prepare_evaluation_data(
         args.dataset_id, args.split, args.min_examples, vocabulary=None
     )
 
@@ -332,12 +348,14 @@ def evaluate_classifier(args: argparse.Namespace) -> dict[str, dict[str, float]]
     if metadata_signals:
         logger.info(f"Model was trained with metadata inputs: {metadata_signals}")
 
-    texts, _, gold_sets, derived_sets, _, source_groups = prepare_evaluation_data(
-        args.dataset_id,
-        args.split,
-        args.min_examples,
-        vocabulary=vocabulary,
-        metadata_signals=metadata_signals,
+    texts, _, gold_sets, derived_sets, _, source_groups, cwe_flags = (
+        prepare_evaluation_data(
+            args.dataset_id,
+            args.split,
+            args.min_examples,
+            vocabulary=vocabulary,
+            metadata_signals=metadata_signals,
+        )
     )
 
     all_logits = []
@@ -359,17 +377,24 @@ def evaluate_classifier(args: argparse.Namespace) -> dict[str, dict[str, float]]
     results = {"classifier": metrics}
 
     if args.stratify:
-        for group in sorted(set(source_groups)):
-            indices = [
-                index for index, g in enumerate(source_groups) if g == group
-            ]
+        # Cross-strata: per label_sources group, per gold-CWE presence, and
+        # their intersection. The intersection separates coverage dilution
+        # (CWE helps wherever it is present) from stratum-level effects
+        # (e.g. curated KEV assignments) — empty strata are simply absent.
+        strata: dict[str, list[int]] = {}
+        for index, (group, has_cwe) in enumerate(zip(source_groups, cwe_flags)):
+            presence = "cwe-present" if has_cwe else "cwe-absent"
+            for name in (group, presence, f"{group}/{presence}"):
+                strata.setdefault(name, []).append(index)
+        for name in sorted(strata):
+            indices = strata[name]
             group_gold = [gold_sets[index] for index in indices]
             group_metrics = rank_and_score(logits[indices], vocabulary, group_gold)
             group_metrics.update(
                 threshold_f1(logits[indices], vocabulary, group_gold)
             )
             group_metrics["n_examples"] = float(len(indices))
-            results[f"classifier[{group}]"] = group_metrics
+            results[f"classifier[{name}]"] = group_metrics
 
     if args.prior != "none":
         candidate_prior_diagnostics(gold_sets, derived_sets, set(vocabulary))
@@ -426,9 +451,10 @@ def main() -> None:
     parser.add_argument(
         "--stratify",
         action="store_true",
-        help="Additionally report metrics per label_sources group "
-        "(e.g. ctid_cve vs ctid_kev) to expose metadata-coverage confounds. "
-        "Classifier method only.",
+        help="Additionally report metrics per label_sources group, per "
+        "gold-CWE presence, and their intersection (e.g. ctid_cve, "
+        "cwe-present, ctid_cve/cwe-present) to expose metadata-coverage "
+        "confounds. Classifier method only.",
     )
     parser.add_argument(
         "--embedding-model",
