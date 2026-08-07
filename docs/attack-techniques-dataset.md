@@ -748,9 +748,35 @@ examples, input serialization is signal *selection*, not accumulation.
 Because gold-CWE coverage differs by label source (100% on `ctid_kev` vs
 76.0% on the 2021 `ctid_cve` rows), the validator's `--stratify` flag
 reports metrics per `label_sources` group to check where the gain
-concentrates. Open follow-up: a `+CWE (predicted)` cascade arm feeding
-the CIRCL CWE-guesser's prediction instead of the gold assignment, which
-would make the improvement available for CVEs with no CWE on record.
+concentrates.
+
+**Stratified replication (2026-08-07).** The grid above retained no
+checkpoints, so the stratified analysis retrained all 30 runs (same
+seeds and hyperparameters). Two findings:
+
+1. *The CWE gain attenuates under retraining.* With GPU nondeterminism
+   as the only difference, the overall paired delta shrinks from
+   +0.046 (consistent on all four metrics) to +0.014 recall@5, with
+   only macro-F1 (+0.012) still clearing 2·SEM — seed spread
+   understates run-to-run variance. The qualitative ordering is
+   unchanged in both grids: CWE is the only arm ever consistently
+   positive, products the only one consistently harmful in both.
+2. *The gain concentrates where CWE coverage is complete.* Per-stratum
+   paired deltas (recall@5): **+0.053 on `ctid_kev`** (consistent;
+   100% gold-CWE coverage, curated alongside the KEV process) vs
+   **−0.003 on `ctid_cve`** (76% coverage, ordinary NVD assignments).
+   Missing-token dilution alone can't explain the split (76% coverage
+   of a uniform +0.053 effect would still show ≈ +0.040); the
+   description-only baseline is also much weaker on KEV rows (0.614 vs
+   0.715 recall@5), so headroom and/or CWE assignment quality drive
+   the difference. The KEV stratum is small (n=36): location
+   established, magnitude indicative.
+
+Open follow-up: a `+CWE (predicted)` cascade arm feeding the CIRCL
+CWE-guesser's prediction instead of the gold assignment. It would make
+the improvement available for CVEs with no CWE on record — and, having
+100% coverage by construction but NVD-grade quality, it separates the
+two explanations above. Must be reported stratified.
 
 ### Inspecting a single CVE
 
