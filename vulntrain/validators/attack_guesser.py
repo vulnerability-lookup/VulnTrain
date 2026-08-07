@@ -140,8 +140,11 @@ def prepare_evaluation_data(
     val_split: float = 0.1,
     val_seed: int = 42,
     metadata_signals: Optional[list[str]] = None,
-) -> tuple[list[str], list[str], list[set[str]], list[set[str]], list[str]]:
-    """Return (texts, ids, gold sets, derived candidate sets, vocabulary).
+) -> tuple[
+    list[str], list[str], list[set[str]], list[set[str]], list[str], list[str]
+]:
+    """Return (texts, ids, gold sets, derived candidate sets, vocabulary,
+    label-source groups).
 
     Texts are built with the same ``build_input_text`` as the trainer,
     appending the given verbalized metadata signals (none by default).
@@ -177,6 +180,7 @@ def prepare_evaluation_data(
     vuln_ids: list[str] = []
     gold_sets: list[set[str]] = []
     derived_sets: list[set[str]] = []
+    source_groups: list[str] = []
     skipped = 0
     for example in examples:
         gold = {
@@ -194,12 +198,13 @@ def prepare_evaluation_data(
                 for technique in example.get("techniques_derived") or []
             }
         )
+        source_groups.append("+".join(sorted(example.get("label_sources") or [])))
     logger.info(
         f"Evaluating on {len(texts)} {split} examples "
         f"({skipped} skipped: no in-vocabulary technique), "
         f"{len(vocabulary)} candidate techniques"
     )
-    return texts, vuln_ids, gold_sets, derived_sets, vocabulary
+    return texts, vuln_ids, gold_sets, derived_sets, vocabulary, source_groups
 
 
 def candidate_prior_diagnostics(
@@ -243,7 +248,7 @@ def fuse_with_prior(
 
 
 def evaluate_similarity(args: argparse.Namespace) -> dict[str, float]:
-    texts, _, gold_sets, _, vocabulary = prepare_evaluation_data(
+    texts, _, gold_sets, _, vocabulary, _ = prepare_evaluation_data(
         args.dataset_id, args.split, args.min_examples, vocabulary=None
     )
 
@@ -285,6 +290,33 @@ def rank_and_score(
     return ranking_metrics(ranked_labels, gold_sets)
 
 
+def threshold_f1(
+    logits: np.ndarray, vocabulary: list[str], gold_sets: list[set[str]]
+) -> dict[str, float]:
+    """Micro/macro F1 at the training-time decision threshold (logit >= 0,
+    i.e. probability 0.5). Raw logits only: the threshold is meaningless on
+    prior-shifted scores. Macro-F1 averages over the full vocabulary, so on
+    a small subset labels absent from it contribute 0 — compare subsets only
+    against the same subset under another model, never against the full set.
+    """
+    from sklearn.metrics import f1_score
+
+    predictions = (logits >= 0.0).astype(int)
+    gold_matrix = np.zeros_like(predictions)
+    label_to_id = {label: index for index, label in enumerate(vocabulary)}
+    for row, gold in enumerate(gold_sets):
+        for label in gold:
+            gold_matrix[row, label_to_id[label]] = 1
+    return {
+        "f1_micro": float(
+            f1_score(gold_matrix, predictions, average="micro", zero_division=0)
+        ),
+        "f1_macro": float(
+            f1_score(gold_matrix, predictions, average="macro", zero_division=0)
+        ),
+    }
+
+
 def evaluate_classifier(args: argparse.Namespace) -> dict[str, dict[str, float]]:
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     model = AutoModelForSequenceClassification.from_pretrained(args.model)
@@ -300,7 +332,7 @@ def evaluate_classifier(args: argparse.Namespace) -> dict[str, dict[str, float]]
     if metadata_signals:
         logger.info(f"Model was trained with metadata inputs: {metadata_signals}")
 
-    texts, _, gold_sets, derived_sets, _ = prepare_evaluation_data(
+    texts, _, gold_sets, derived_sets, _, source_groups = prepare_evaluation_data(
         args.dataset_id,
         args.split,
         args.min_examples,
@@ -323,24 +355,21 @@ def evaluate_classifier(args: argparse.Namespace) -> dict[str, dict[str, float]]
     logits = torch.cat(all_logits).numpy()
 
     metrics = rank_and_score(logits, vocabulary, gold_sets)
-
-    # Threshold metrics, as reported during training (raw logits only: the
-    # 0.5-probability threshold is meaningless on prior-shifted scores).
-    predictions = (logits >= 0.0).astype(int)
-    gold_matrix = np.zeros_like(predictions)
-    label_to_id = {label: index for index, label in enumerate(vocabulary)}
-    for row, gold in enumerate(gold_sets):
-        for label in gold:
-            gold_matrix[row, label_to_id[label]] = 1
-    from sklearn.metrics import f1_score
-
-    metrics["f1_micro"] = f1_score(
-        gold_matrix, predictions, average="micro", zero_division=0
-    )
-    metrics["f1_macro"] = f1_score(
-        gold_matrix, predictions, average="macro", zero_division=0
-    )
+    metrics.update(threshold_f1(logits, vocabulary, gold_sets))
     results = {"classifier": metrics}
+
+    if args.stratify:
+        for group in sorted(set(source_groups)):
+            indices = [
+                index for index, g in enumerate(source_groups) if g == group
+            ]
+            group_gold = [gold_sets[index] for index in indices]
+            group_metrics = rank_and_score(logits[indices], vocabulary, group_gold)
+            group_metrics.update(
+                threshold_f1(logits[indices], vocabulary, group_gold)
+            )
+            group_metrics["n_examples"] = float(len(indices))
+            results[f"classifier[{group}]"] = group_metrics
 
     if args.prior != "none":
         candidate_prior_diagnostics(gold_sets, derived_sets, set(vocabulary))
@@ -395,6 +424,13 @@ def main() -> None:
         "(tune on --split validation, then run the chosen value on test once).",
     )
     parser.add_argument(
+        "--stratify",
+        action="store_true",
+        help="Additionally report metrics per label_sources group "
+        "(e.g. ctid_cve vs ctid_kev) to expose metadata-coverage confounds. "
+        "Classifier method only.",
+    )
+    parser.add_argument(
         "--embedding-model",
         default="sentence-transformers/all-MiniLM-L6-v2",
         help="Sentence encoder for the similarity baseline.",
@@ -433,6 +469,8 @@ def main() -> None:
     else:
         if args.prior != "none":
             parser.error("--prior requires --method classifier")
+        if args.stratify:
+            parser.error("--stratify requires --method classifier")
         results = {"similarity": evaluate_similarity(args)}
 
     print(f"\n{'=' * 60}")
