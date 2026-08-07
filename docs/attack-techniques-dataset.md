@@ -709,6 +709,49 @@ last proposed use of the derived labels beyond documentation: the
 `techniques_derived` column remains in the dataset for transparency and
 as a comparison column only.
 
+### Metadata ablation: CWE pays, nothing else does (2026-08-07)
+
+The dataset v2 metadata columns exist to answer one question: **does any
+structured signal add technique information the description doesn't
+already carry?** The trainer's `--metadata cvss|cwe|products|derived|all`
+flag appends the verbalized signal(s) to the input text (constant section
+headers, explicit `unknown` for missing values — see
+`vulntrain/attack_metadata.py`); the chosen signals are recorded in the
+model config (`metadata_inputs`), and the validator and single-CVE
+inference rebuild the exact training-time input automatically.
+
+Six arms × five seeds (42–46), corrected protocol, roberta-base,
+2× H100 (`papers` sweep scripts; logs archived with the paper):
+
+| input | recall@5 | recall@3 | micro-F1 | macro-F1 |
+|---|---|---|---|---|
+| description only | 0.664 ± 0.017 | 0.521 ± 0.011 | 0.408 ± 0.011 | 0.182 ± 0.018 |
+| + CVSS vector | 0.666 ± 0.026 | 0.529 ± 0.032 | 0.405 ± 0.018 | 0.181 ± 0.020 |
+| **+ CWE (gold)** | **0.710 ± 0.009** | **0.546 ± 0.013** | **0.427 ± 0.011** | **0.199 ± 0.008** |
+| + affected products | 0.646 ± 0.016 | 0.517 ± 0.021 | 0.396 ± 0.012 | 0.166 ± 0.011 |
+| + derived candidates | 0.642 ± 0.021 | 0.523 ± 0.023 | 0.398 ± 0.013 | 0.168 ± 0.009 |
+| all signals | 0.659 ± 0.027 | 0.506 ± 0.023 | 0.390 ± 0.009 | 0.176 ± 0.015 |
+
+**CWE is the only signal that pays — and it pays on every metric.** The
+paired per-seed deltas vs the description-only baseline clear the 2·SEM
+consistency threshold on all four metrics (recall@5 +0.046, recall@3
++0.025, micro-F1 +0.018, macro-F1 +0.017), and the CWE arm also has the
+smallest seed spread of any arm: the weakness class doesn't just add
+information, it stabilizes what the model learns from free text. CVSS is
+a null result (+0.001 recall@5 — severity is already recoverable from the
+description). Affected products and the derived candidate IDs are mildly
+harmful; the latter confirms the E1 re-ranking verdict from the input
+side. **Concatenating everything (`all`) destroys the CWE gain**
+(recall@3 −0.015, micro-F1 −0.018, both consistent): at ~1,000 training
+examples, input serialization is signal *selection*, not accumulation.
+
+Because gold-CWE coverage differs by label source (100% on `ctid_kev` vs
+76.0% on the 2021 `ctid_cve` rows), the validator's `--stratify` flag
+reports metrics per `label_sources` group to check where the gain
+concentrates. Open follow-up: a `+CWE (predicted)` cascade arm feeding
+the CIRCL CWE-guesser's prediction instead of the gold assignment, which
+would make the improvement available for CVEs with no CWE on record.
+
 ### Inspecting a single CVE
 
 `vulntrain-infer-attack-classification` runs one description (or one CVE
