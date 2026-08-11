@@ -1,7 +1,7 @@
 """Evaluate ATT&CK technique suggestion approaches on the
 CIRCL/vulnerability-attack-techniques test split.
 
-Two methods share the same evaluation protocol (same label vocabulary,
+Three methods share the same evaluation protocol (same label vocabulary,
 same ranking metrics), so their numbers are directly comparable:
 
 - ``similarity``: a zero-shot, SMET-style baseline. The vulnerability
@@ -11,9 +11,20 @@ same ranking metrics), so their numbers are directly comparable:
   involved.
 - ``classifier``: a fine-tuned multi-label model produced by
   vulntrain-train-attack-classification; techniques are ranked by logit.
+- ``biencoder``: a fine-tuned label-semantics model produced by
+  vulntrain-train-attack-biencoder; techniques are ranked by the affine
+  cosine score against their official texts, rebuilt exactly as trained
+  (saved technique texts, recorded scale/bias and metadata signals).
 
-The fine-tuned classifier has to beat the zero-shot baseline to justify
+The fine-tuned models have to beat the zero-shot baseline to justify
 existing (see docs/attack-techniques-dataset.md).
+
+``similarity`` and ``biencoder`` also support ``--candidates full``: an
+open-vocabulary evaluation ranking ALL active enterprise parent
+techniques (not just the frozen training vocabulary) --- a setting a
+classification head structurally cannot address. Reported overall, on
+the in-vocabulary gold, and on the below-floor gold (test techniques
+under the training vocabulary floor, i.e. zero-shot labels).
 
 The classifier method can additionally re-rank with the CVE2CAPEC-derived
 candidate prior (the dataset's ``techniques_derived`` column, never used
@@ -39,6 +50,7 @@ from transformers import (
 )
 
 from vulntrain.attack_metadata import build_input_text
+from vulntrain.attack_texts import load_technique_texts
 from vulntrain.datasets.attack_guesser_dataset import (
     ENTERPRISE_ATTACK_STIX_URL,
     download_file,
@@ -52,37 +64,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 RECALL_KS = (1, 3, 5, 10)
-
-
-def load_technique_texts(
-    stix_path: Path, vocabulary: list[str]
-) -> dict[str, str]:
-    """Return 'Name. Description' for every vocabulary technique, from the
-    enterprise ATT&CK STIX bundle."""
-    with open(stix_path, encoding="utf-8") as f:
-        bundle = json.load(f)
-    texts: dict[str, str] = {}
-    for obj in bundle.get("objects", []):
-        if obj.get("type") != "attack-pattern":
-            continue
-        if obj.get("revoked") or obj.get("x_mitre_deprecated"):
-            continue
-        external_id = next(
-            (
-                reference.get("external_id")
-                for reference in obj.get("external_references", [])
-                if reference.get("source_name") == "mitre-attack"
-            ),
-            None,
-        )
-        if external_id in vocabulary:
-            name = obj.get("name", "")
-            description = obj.get("description", "")
-            texts[external_id] = f"{name}. {description}".strip()
-    missing = set(vocabulary) - set(texts)
-    if missing:
-        logger.warning(f"No STIX text found for techniques: {sorted(missing)}")
-    return texts
 
 
 def embed_texts(
@@ -263,7 +244,36 @@ def fuse_with_prior(
     return logits + alpha * member
 
 
-def evaluate_similarity(args: argparse.Namespace) -> dict[str, float]:
+def evaluate_similarity(args: argparse.Namespace) -> dict[str, dict[str, float]]:
+    logger.info(f"Embedding with {args.embedding_model}")
+    tokenizer = AutoTokenizer.from_pretrained(args.embedding_model)
+    model = AutoModel.from_pretrained(args.embedding_model)
+
+    if args.candidates == "full":
+        candidate_texts = open_candidate_texts(args.cache_dir)
+        candidates = sorted(candidate_texts)
+        # The below-floor split needs the training vocabulary as reference,
+        # even though the zero-shot method itself never uses it.
+        head_vocabulary = build_label_vocabulary(
+            load_dataset(args.dataset_id)["train"]["techniques"],
+            args.min_examples,
+            keep_subtechniques=False,
+        )
+        texts, gold_sets = prepare_open_evaluation(
+            args.dataset_id, args.split, set(candidates), None
+        )
+        candidate_embeddings = embed_texts(
+            [candidate_texts[label] for label in candidates],
+            tokenizer,
+            model,
+            args.batch_size,
+        )
+        description_embeddings = embed_texts(texts, tokenizer, model, args.batch_size)
+        scores = (description_embeddings @ candidate_embeddings.T).numpy()
+        return open_vocabulary_results(
+            "similarity", scores, candidates, gold_sets, head_vocabulary
+        )
+
     texts, _, gold_sets, _, vocabulary, _, _ = prepare_evaluation_data(
         args.dataset_id, args.split, args.min_examples, vocabulary=None
     )
@@ -274,10 +284,6 @@ def evaluate_similarity(args: argparse.Namespace) -> dict[str, float]:
     )
     technique_texts = load_technique_texts(stix_path, vocabulary)
     candidate_labels = sorted(technique_texts)
-
-    logger.info(f"Embedding with {args.embedding_model}")
-    tokenizer = AutoTokenizer.from_pretrained(args.embedding_model)
-    model = AutoModel.from_pretrained(args.embedding_model)
 
     technique_embeddings = embed_texts(
         [technique_texts[label] for label in candidate_labels],
@@ -292,7 +298,7 @@ def evaluate_similarity(args: argparse.Namespace) -> dict[str, float]:
     ranked_labels = [
         [candidate_labels[index] for index in row] for row in ranked_indices
     ]
-    return ranking_metrics(ranked_labels, gold_sets)
+    return {"similarity": ranking_metrics(ranked_labels, gold_sets)}
 
 
 MASK_ALPHA = 1e6  # far above any logit magnitude: candidates rank strictly first
@@ -331,6 +337,185 @@ def threshold_f1(
             f1_score(gold_matrix, predictions, average="macro", zero_division=0)
         ),
     }
+
+
+def stratified_results(
+    method: str,
+    logits: np.ndarray,
+    vocabulary: list[str],
+    gold_sets: list[set[str]],
+    source_groups: list[str],
+    cwe_flags: list[bool],
+) -> dict[str, dict[str, float]]:
+    """Cross-strata metrics: per label_sources group, per gold-CWE presence,
+    and their intersection. The intersection separates coverage dilution
+    (CWE helps wherever it is present) from stratum-level effects (e.g.
+    curated KEV assignments) --- empty strata are simply absent."""
+    strata: dict[str, list[int]] = {}
+    for index, (group, has_cwe) in enumerate(zip(source_groups, cwe_flags)):
+        presence = "cwe-present" if has_cwe else "cwe-absent"
+        for name in (group, presence, f"{group}/{presence}"):
+            strata.setdefault(name, []).append(index)
+    results: dict[str, dict[str, float]] = {}
+    for name in sorted(strata):
+        indices = strata[name]
+        group_gold = [gold_sets[index] for index in indices]
+        group_metrics = rank_and_score(logits[indices], vocabulary, group_gold)
+        group_metrics.update(threshold_f1(logits[indices], vocabulary, group_gold))
+        group_metrics["n_examples"] = float(len(indices))
+        results[f"{method}[{name}]"] = group_metrics
+    return results
+
+
+def prepare_open_evaluation(
+    dataset_id: str,
+    split: str,
+    candidate_set: set[str],
+    metadata_signals: Optional[list[str]],
+) -> tuple[list[str], list[set[str]]]:
+    """Rows for the open-vocabulary evaluation: every split example whose
+    collapsed gold intersects the candidate universe (no training-vocabulary
+    restriction)."""
+    dataset = load_dataset(dataset_id)
+    texts: list[str] = []
+    gold_sets: list[set[str]] = []
+    skipped = 0
+    for example in dataset[split]:
+        gold = {
+            collapse_subtechnique(technique) for technique in example["techniques"]
+        } & candidate_set
+        if not gold:
+            skipped += 1
+            continue
+        texts.append(build_input_text(example, metadata_signals or []))
+        gold_sets.append(gold)
+    logger.info(
+        f"Open-vocabulary evaluation on {len(texts)} {split} examples "
+        f"({skipped} skipped: no gold technique with a candidate text), "
+        f"{len(candidate_set)} candidate techniques"
+    )
+    return texts, gold_sets
+
+
+def open_vocabulary_results(
+    method: str,
+    scores: np.ndarray,
+    candidates: list[str],
+    gold_sets: list[set[str]],
+    head_vocabulary: list[str],
+) -> dict[str, dict[str, float]]:
+    """Ranking metrics over the full candidate universe: overall, restricted
+    to the in-vocabulary gold, and restricted to the below-floor gold ---
+    techniques under the training vocabulary floor, which the model (if
+    trained) never saw a labeled example for."""
+    head = set(head_vocabulary)
+    results: dict[str, dict[str, float]] = {}
+    subsets: list[tuple[str, list[set[str]]]] = [
+        ("open", gold_sets),
+        ("open/in-vocab-gold", [gold & head for gold in gold_sets]),
+        ("open/below-floor-gold", [gold - head for gold in gold_sets]),
+    ]
+    for name, restricted in subsets:
+        rows = [index for index, gold in enumerate(restricted) if gold]
+        if not rows:
+            continue
+        metrics = rank_and_score(
+            scores[rows], candidates, [restricted[index] for index in rows]
+        )
+        metrics["n_examples"] = float(len(rows))
+        results[f"{method}[{name}]"] = metrics
+    return results
+
+
+def open_candidate_texts(
+    cache_dir: str, saved_texts: Optional[dict[str, str]] = None
+) -> dict[str, str]:
+    """Texts for all active enterprise parent techniques; saved
+    training-time texts take precedence over freshly built STIX ones so a
+    model's vocabulary techniques are scored exactly as trained."""
+    stix_path = download_file(
+        ENTERPRISE_ATTACK_STIX_URL, Path(cache_dir).expanduser(), "enterprise-attack.json"
+    )
+    texts = load_technique_texts(stix_path, parents_only=True)
+    if saved_texts:
+        texts.update(saved_texts)
+    return texts
+
+
+def evaluate_biencoder(args: argparse.Namespace) -> dict[str, dict[str, float]]:
+    tokenizer = AutoTokenizer.from_pretrained(args.model)
+    encoder = AutoModel.from_pretrained(args.model)
+    encoder.eval()
+
+    biencoder = getattr(encoder.config, "biencoder", None)
+    if biencoder is None:
+        raise SystemExit(
+            f"{args.model} has no 'biencoder' config entry; was it trained "
+            "with vulntrain-train-attack-biencoder?"
+        )
+    vocabulary = list(biencoder["labels"])
+    scale = float(biencoder["logit_scale"])
+    bias = float(biencoder["logit_bias"])
+    technique_max_length = int(biencoder["technique_max_length"])
+
+    texts_path = Path(args.model) / "technique_texts.json"
+    if texts_path.exists():
+        with open(texts_path, encoding="utf-8") as f:
+            technique_texts = json.load(f)
+    else:
+        from huggingface_hub import hf_hub_download
+
+        with open(
+            hf_hub_download(args.model, "technique_texts.json"), encoding="utf-8"
+        ) as f:
+            technique_texts = json.load(f)
+
+    metadata_signals = list(getattr(encoder.config, "metadata_inputs", []) or [])
+    if metadata_signals:
+        logger.info(f"Model was trained with metadata inputs: {metadata_signals}")
+
+    def score(cve_texts: list[str], candidate_texts: list[str]) -> np.ndarray:
+        candidate_embeddings = embed_texts(
+            candidate_texts,
+            tokenizer,
+            encoder,
+            args.batch_size,
+            max_length=technique_max_length,
+        )
+        cve_embeddings = embed_texts(cve_texts, tokenizer, encoder, args.batch_size)
+        return (
+            (scale * (cve_embeddings @ candidate_embeddings.T) + bias).numpy()
+        )
+
+    if args.candidates == "full":
+        candidate_texts = open_candidate_texts(args.cache_dir, technique_texts)
+        candidates = sorted(candidate_texts)
+        texts, gold_sets = prepare_open_evaluation(
+            args.dataset_id, args.split, set(candidates), metadata_signals
+        )
+        scores = score(texts, [candidate_texts[label] for label in candidates])
+        return open_vocabulary_results(
+            "biencoder", scores, candidates, gold_sets, vocabulary
+        )
+
+    texts, _, gold_sets, _, _, source_groups, cwe_flags = prepare_evaluation_data(
+        args.dataset_id,
+        args.split,
+        args.min_examples,
+        vocabulary=vocabulary,
+        metadata_signals=metadata_signals,
+    )
+    logits = score(texts, [technique_texts[label] for label in vocabulary])
+    metrics = rank_and_score(logits, vocabulary, gold_sets)
+    metrics.update(threshold_f1(logits, vocabulary, gold_sets))
+    results = {"biencoder": metrics}
+    if args.stratify:
+        results.update(
+            stratified_results(
+                "biencoder", logits, vocabulary, gold_sets, source_groups, cwe_flags
+            )
+        )
+    return results
 
 
 def evaluate_classifier(args: argparse.Namespace) -> dict[str, dict[str, float]]:
@@ -377,24 +562,11 @@ def evaluate_classifier(args: argparse.Namespace) -> dict[str, dict[str, float]]
     results = {"classifier": metrics}
 
     if args.stratify:
-        # Cross-strata: per label_sources group, per gold-CWE presence, and
-        # their intersection. The intersection separates coverage dilution
-        # (CWE helps wherever it is present) from stratum-level effects
-        # (e.g. curated KEV assignments) — empty strata are simply absent.
-        strata: dict[str, list[int]] = {}
-        for index, (group, has_cwe) in enumerate(zip(source_groups, cwe_flags)):
-            presence = "cwe-present" if has_cwe else "cwe-absent"
-            for name in (group, presence, f"{group}/{presence}"):
-                strata.setdefault(name, []).append(index)
-        for name in sorted(strata):
-            indices = strata[name]
-            group_gold = [gold_sets[index] for index in indices]
-            group_metrics = rank_and_score(logits[indices], vocabulary, group_gold)
-            group_metrics.update(
-                threshold_f1(logits[indices], vocabulary, group_gold)
+        results.update(
+            stratified_results(
+                "classifier", logits, vocabulary, gold_sets, source_groups, cwe_flags
             )
-            group_metrics["n_examples"] = float(len(indices))
-            results[f"classifier[{name}]"] = group_metrics
+        )
 
     if args.prior != "none":
         candidate_prior_diagnostics(gold_sets, derived_sets, set(vocabulary))
@@ -413,10 +585,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--method",
-        choices=["similarity", "classifier"],
+        choices=["similarity", "classifier", "biencoder"],
         default="similarity",
         help="'similarity' for the zero-shot embedding baseline, 'classifier' "
-        "for a model trained with vulntrain-train-attack-classification.",
+        "for a model trained with vulntrain-train-attack-classification, "
+        "'biencoder' for a label-semantics model trained with "
+        "vulntrain-train-attack-biencoder.",
     )
     parser.add_argument(
         "--dataset-id",
@@ -454,7 +628,17 @@ def main() -> None:
         help="Additionally report metrics per label_sources group, per "
         "gold-CWE presence, and their intersection (e.g. ctid_cve, "
         "cwe-present, ctid_cve/cwe-present) to expose metadata-coverage "
-        "confounds. Classifier method only.",
+        "confounds. Classifier and biencoder methods only.",
+    )
+    parser.add_argument(
+        "--candidates",
+        choices=["vocab", "full"],
+        default="vocab",
+        help="Candidate technique universe: 'vocab' ranks the frozen "
+        "training vocabulary (head-to-head protocol), 'full' ranks ALL "
+        "active enterprise parent techniques (open-vocabulary protocol; "
+        "reported overall, on in-vocabulary gold and on below-floor gold). "
+        "Similarity and biencoder methods only.",
     )
     parser.add_argument(
         "--embedding-model",
@@ -464,8 +648,8 @@ def main() -> None:
     parser.add_argument(
         "--model",
         default="",
-        help="Fine-tuned classifier repo ID or local path (required with "
-        "--method classifier).",
+        help="Fine-tuned model repo ID or local path (required with "
+        "--method classifier or biencoder).",
     )
     parser.add_argument(
         "--min-examples",
@@ -488,16 +672,26 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if args.prior != "none" and args.method != "classifier":
+        parser.error("--prior requires --method classifier")
+    if args.stratify and args.method == "similarity":
+        parser.error("--stratify requires --method classifier or biencoder")
+    if args.candidates == "full" and args.method == "classifier":
+        parser.error(
+            "--candidates full is impossible for a classification head "
+            "(it has no scores for techniques outside its training vocabulary)"
+        )
+    if args.candidates == "full" and args.stratify:
+        parser.error("--stratify is not implemented for --candidates full")
+    if args.method in ("classifier", "biencoder") and not args.model:
+        parser.error(f"--method {args.method} requires --model")
+
     if args.method == "classifier":
-        if not args.model:
-            parser.error("--method classifier requires --model")
         results = evaluate_classifier(args)
+    elif args.method == "biencoder":
+        results = evaluate_biencoder(args)
     else:
-        if args.prior != "none":
-            parser.error("--prior requires --method classifier")
-        if args.stratify:
-            parser.error("--stratify requires --method classifier")
-        results = {"similarity": evaluate_similarity(args)}
+        results = evaluate_similarity(args)
 
     print(f"\n{'=' * 60}")
     print(f"Method: {args.method}  (split: {args.split})")
