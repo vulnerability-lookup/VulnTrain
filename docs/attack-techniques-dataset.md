@@ -772,11 +772,28 @@ seeds and hyperparameters). Two findings:
    the difference. The KEV stratum is small (n=36): location
    established, magnitude indicative.
 
+**CWE-presence re-evaluation (2026-08-08).** The stratified sweep kept
+its 30 final models, so a second, inference-only pass re-scored them
+with `--stratify` extended to gold-CWE-presence cross-strata (per
+`label_sources` group, per presence, and their intersection). This
+rules out coverage dilution directly: on the 64 `ctid_cve` rows that
+*do* carry a gold CWE, the cwe arm gains nothing (+0.004 recall@5,
+null on every metric), while the same models gain +0.053 on
+`ctid_kev`. The gain is a property of the KEV stratum — curated
+(CISA-enrichment-grade) CWE assignments and/or more headroom (the
+description-only baseline is 0.614 there vs 0.700 on the CWE-covered
+`ctid_cve` rows) — not of token availability. The CWE-absent
+`ctid_cve` rows are the easy ones (desc 0.774 recall@5, n=17). Pooled
+over both grids (10 paired runs), the honest overall effect of gold
+CWE is +0.030 recall@5, +0.011 micro-F1, +0.015 macro-F1 (all
+consistent), +0.010 recall@3 (not).
+
 Open follow-up: a `+CWE (predicted)` cascade arm feeding the CIRCL
-CWE-guesser's prediction instead of the gold assignment. It would make
-the improvement available for CVEs with no CWE on record — and, having
-100% coverage by construction but NVD-grade quality, it separates the
-two explanations above. Must be reported stratified.
+CWE-guesser's prediction instead of the gold assignment. With coverage
+ruled out, the cascade arm separates the two remaining explanations on
+the KEV rows: if headroom drives the gain, an NVD-grade predicted CWE
+should still help there; if curation quality drives it, the cascade
+gain should vanish. Must be reported stratified.
 
 ### Inspecting a single CVE
 
