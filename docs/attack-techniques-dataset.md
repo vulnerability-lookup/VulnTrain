@@ -788,12 +788,41 @@ over both grids (10 paired runs), the honest overall effect of gold
 CWE is +0.030 recall@5, +0.011 micro-F1, +0.015 macro-F1 (all
 consistent), +0.010 recall@3 (not).
 
-Open follow-up: a `+CWE (predicted)` cascade arm feeding the CIRCL
-CWE-guesser's prediction instead of the gold assignment. With coverage
-ruled out, the cascade arm separates the two remaining explanations on
-the KEV rows: if headroom drives the gain, an NVD-grade predicted CWE
-should still help there; if curation quality drives it, the cascade
-gain should vanish. Must be reported stratified.
+**Cascade arm: predicted CWE (2026-08-11).** With coverage ruled out,
+a cascade arm separates the two remaining explanations on the KEV
+rows: if headroom drives the gain, an NVD-grade predicted CWE should
+still help there; if curation quality drives it, the cascade gain
+should vanish. Dataset v2.1 adds a `cwes_predicted` column (top-1 of
+`CIRCL/cwe-parent-vulnerability-classification-roberta-base` over
+title+description; 100% coverage by construction, 27.3%
+ancestor-level top-1 agreement with gold), and the trainer gained
+`--metadata cwe_predicted` — verbalized under the same `CWE:` header
+as gold, so signal quality is the only difference; mutually exclusive
+with `cwe` and excluded from `all`. Three arms × five seeds, all
+retrained fresh in one session (the attenuation lesson):
+
+| input (recall@5) | overall (n=121) | `ctid_cve` (n=81) | `ctid_kev` (n=36) |
+|---|---|---|---|
+| description only | 0.664 ± 0.010 | 0.701 ± 0.015 | 0.587 ± 0.042 |
+| + CWE (gold) | +0.026 | +0.003 | **+0.082*** |
+| + CWE (predicted) | −0.006 | −0.027 | +0.038 |
+
+**The cascade is closed: the KEV gain is substantially curation
+quality, not headroom.** Gold CWE replicates its KEV gain a third
+time, strongest yet (+0.082 recall@5, +0.034 micro-F1, +0.014
+macro-F1, all consistent) — the one ablation finding that survives
+every retraining. The predicted CWE recovers less than half of it
+(+0.038, not consistent) and clears 2·SEM on no metric in no stratum;
+overall it is null (−0.006 recall@5). At current CWE-classifier
+accuracy, feeding predicted CWEs costs nothing but buys nothing — the
+deployment configuration stays description-only, with gold CWE
+appended when a curated assignment exists. (Note the mild leakage
+direction: the CWE guesser's training data likely includes NVD
+descriptions+CWEs of these test CVEs, which can only have *flattered*
+the cascade arm — the negative verdict survives it.) The
+description-only baseline also moved between sessions again (0.682 →
+0.664 overall recall@5, same seeds and code): a third replication of
+run-to-run variance exceeding seed spread.
 
 ### Inspecting a single CVE
 
