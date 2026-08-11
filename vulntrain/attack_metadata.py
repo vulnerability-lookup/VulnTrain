@@ -18,6 +18,12 @@ Design choices (metadata-ablation experiment, E3):
 from typing import Any, Iterable
 
 METADATA_SIGNALS = ("cvss", "cwe", "products", "derived")
+# The cascade arm: same "CWE:" verbalization as the gold arm, but reading
+# the model-predicted `cwes_predicted` column (dataset >= v2.1), so signal
+# quality is the only difference between the two arms. Deliberately NOT in
+# METADATA_SIGNALS: the trainer's `all` keeps meaning the four organic
+# signals, and the two CWE sources are mutually exclusive.
+CASCADE_SIGNAL = "cwe_predicted"
 
 # (metric code, label, value -> phrase). Codes cover CVSS v2, v3.x and
 # v4.0; temporal/environmental metrics are intentionally skipped.
@@ -116,13 +122,16 @@ def build_input_text(example: dict[str, Any], signals: Iterable[str]) -> str:
         f"{example.get('title') or ''}\n{example.get('description') or ''}".strip()
     ]
     enabled = set(signals)
-    unknown = set(enabled) - set(METADATA_SIGNALS)
+    unknown = set(enabled) - set(METADATA_SIGNALS) - {CASCADE_SIGNAL}
     if unknown:
         raise ValueError(f"Unknown metadata signals: {sorted(unknown)}")
+    if "cwe" in enabled and CASCADE_SIGNAL in enabled:
+        raise ValueError("cwe and cwe_predicted are mutually exclusive")
     if "cvss" in enabled:
         parts.append(verbalize_cvss(example.get("cvss_vector") or ""))
-    if "cwe" in enabled:
-        cwes = _unique(example.get("cwes") or [], limit=5)
+    if "cwe" in enabled or CASCADE_SIGNAL in enabled:
+        column = "cwes" if "cwe" in enabled else "cwes_predicted"
+        cwes = _unique(example.get(column) or [], limit=5)
         parts.append("CWE: " + ("; ".join(cwes) if cwes else "unknown") + ".")
     if "products" in enabled:
         products = _unique(

@@ -40,7 +40,11 @@ from transformers import (
     TrainingArguments,
 )
 
-from vulntrain.attack_metadata import METADATA_SIGNALS, build_input_text
+from vulntrain.attack_metadata import (
+    CASCADE_SIGNAL,
+    METADATA_SIGNALS,
+    build_input_text,
+)
 from vulntrain.utils import push_emissions_report
 
 logging.basicConfig(level=logging.INFO)
@@ -417,12 +421,14 @@ def main() -> None:
     parser.add_argument(
         "--metadata",
         nargs="+",
-        choices=list(METADATA_SIGNALS) + ["all"],
+        choices=list(METADATA_SIGNALS) + [CASCADE_SIGNAL, "all"],
         default=[],
         help="Structured metadata signals appended (verbalized) to the input "
         "text: 'cvss' (vector components), 'cwe', 'products' (affected "
         "products + CPE vendor/product), 'derived' (CVE2CAPEC candidate "
-        "techniques), or 'all'. Default: none (description-only, v1 input). "
+        "techniques), 'all' (those four), or 'cwe_predicted' (the cascade "
+        "arm: the CWE-guesser's prediction verbalized exactly like 'cwe'; "
+        "excluded from 'all'). Default: none (description-only, v1 input). "
         "The enabled signals are stored in the model config so the validator "
         "builds identical inputs.",
     )
