@@ -75,7 +75,7 @@ class BiEncoderModel(torch.nn.Module):
         encoder: Any,
         technique_encodings: dict[str, torch.Tensor],
         logit_scale: float = 10.0,
-        logit_bias: float = -10.0,
+        logit_bias: float = -5.0,
     ):
         super().__init__()
         self.encoder = encoder
@@ -84,9 +84,11 @@ class BiEncoderModel(torch.nn.Module):
         self.register_buffer(
             "technique_attention_mask", technique_encodings["attention_mask"]
         )
-        # Cosines of untuned mean-pooled embeddings cluster near 1
-        # (anisotropy), so the bias starts strongly negative to keep
-        # initial BCE probabilities below 0.5.
+        # The bias starts negative to counter the near-1 cosines of untuned
+        # mean-pooled embeddings (anisotropy), but must leave logits above
+        # the decision threshold reachable: scale s and bias b cap logits
+        # at s + b, and a cap <= 0 makes every threshold metric
+        # structurally zero (observed with b = -10: f1_macro pinned at 0).
         self.logit_scale = torch.nn.Parameter(torch.tensor(float(logit_scale)))
         self.logit_bias = torch.nn.Parameter(torch.tensor(float(logit_bias)))
 
@@ -274,7 +276,12 @@ def train(
         weight_decay=0.01,
         logging_steps=20,
         load_best_model_at_end=True,
-        metric_for_best_model="f1_macro",
+        # The classification trainer selects on f1_macro, but threshold
+        # metrics depend on the affine calibration here (an early or
+        # miscalibrated model yields no positive predictions at all, and a
+        # constant selection metric silently degenerates to the first
+        # epoch); the bi-encoder is used as a ranker, so select on ranking.
+        metric_for_best_model="recall_at_5",
         greater_is_better=True,
         seed=seed,
         data_seed=seed,
@@ -307,6 +314,10 @@ def train(
         # Save the (best) encoder as a plain AutoModel plus everything the
         # validator needs to rebuild the training-time scoring function.
         encoder = model.encoder
+        logger.info(
+            f"Trained affine calibration: logit_scale={model.logit_scale.item():.4f} "
+            f"logit_bias={model.logit_bias.item():.4f}"
+        )
         encoder.config.biencoder = {
             "labels": label_vocabulary,
             "logit_scale": float(model.logit_scale.item()),
