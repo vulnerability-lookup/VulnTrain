@@ -39,6 +39,7 @@ from transformers import (
     Trainer,
     TrainingArguments,
 )
+from transformers.modeling_outputs import SequenceClassifierOutput
 
 from vulntrain.attack_metadata import (
     CASCADE_SIGNAL,
@@ -49,6 +50,18 @@ from vulntrain.utils import push_emissions_report
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# CTID "Mapping ATT&CK to CVE for Impact" buckets, in the label-layout
+# order of the bucket-multitask arm. `uncategorized` holds the union
+# techniques the source mapping left unbucketed (~27% of train
+# occurrences), so the union target of the multitask model is identical
+# to the flattened-union baseline's.
+LABEL_BUCKETS = [
+    "exploitation_techniques",
+    "primary_impact",
+    "secondary_impact",
+    "uncategorized",
+]
 
 
 def collapse_subtechnique(technique_id: str) -> str:
@@ -87,6 +100,96 @@ def compute_metrics(eval_pred: Any) -> dict[str, float]:
         "recall_at_3": recall_at_k(logits, labels, 3),
         "recall_at_5": recall_at_k(logits, labels, 5),
     }
+
+
+def bucket_union_metrics(num_buckets: int) -> Any:
+    """compute_metrics for the bucket-multitask arm: logits and labels are
+    bucket-major ``(N, num_buckets * V)``; the reported metrics are on the
+    union task (max over buckets), so checkpoint selection and test
+    numbers stay directly comparable with the flattened-union baseline."""
+
+    def wrapped(eval_pred: Any) -> dict[str, float]:
+        logits, labels = eval_pred
+        union_logits = logits.reshape(len(logits), num_buckets, -1).max(axis=1)
+        union_labels = labels.reshape(len(labels), num_buckets, -1).max(axis=1)
+        return compute_metrics((union_logits, union_labels))
+
+    return wrapped
+
+
+def technique_slice_metrics(num_labels: int) -> Any:
+    """compute_metrics for the tactic-auxiliary arm: the model emits
+    technique logits only, but the dataset labels carry the auxiliary
+    tactic targets appended --- slice them off before scoring."""
+
+    def wrapped(eval_pred: Any) -> dict[str, float]:
+        logits, labels = eval_pred
+        return compute_metrics((logits, labels[:, :num_labels]))
+
+    return wrapped
+
+
+class TacticAuxiliaryModel(torch.nn.Module):
+    """Standard sequence classifier plus an auxiliary multi-label tactic
+    head on the [CLS] representation, trained jointly (loss =
+    BCE(techniques) + aux_weight * BCE(tactics)). The tactic targets are
+    derived from the gold techniques via the STIX kill-chain phases ---
+    free hierarchical supervision, including from below-floor gold
+    techniques the technique head cannot express. Only the wrapped
+    classifier is saved; the tactic head exists at training time only."""
+
+    def __init__(
+        self,
+        classifier: Any,
+        num_tactics: int,
+        aux_weight: float,
+        pos_weight_technique: Optional[torch.Tensor] = None,
+        pos_weight_tactic: Optional[torch.Tensor] = None,
+    ):
+        super().__init__()
+        self.classifier = classifier
+        self.tactic_head = torch.nn.Linear(
+            classifier.config.hidden_size, num_tactics
+        )
+        self.num_labels = classifier.config.num_labels
+        self.aux_weight = aux_weight
+        self.pos_weight_technique = pos_weight_technique
+        self.pos_weight_tactic = pos_weight_tactic
+
+    def forward(
+        self,
+        input_ids: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        labels: Optional[torch.Tensor] = None,
+        **kwargs: Any,
+    ) -> SequenceClassifierOutput:
+        outputs = self.classifier(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=True,
+        )
+        technique_logits = outputs.logits
+        tactic_logits = self.tactic_head(outputs.hidden_states[-1][:, 0])
+        loss = None
+        if labels is not None:
+            technique_labels = labels[:, : self.num_labels].float()
+            tactic_labels = labels[:, self.num_labels :].float()
+            technique_loss = torch.nn.BCEWithLogitsLoss(
+                pos_weight=(
+                    self.pos_weight_technique.to(technique_logits.device)
+                    if self.pos_weight_technique is not None
+                    else None
+                )
+            )(technique_logits, technique_labels)
+            tactic_loss = torch.nn.BCEWithLogitsLoss(
+                pos_weight=(
+                    self.pos_weight_tactic.to(tactic_logits.device)
+                    if self.pos_weight_tactic is not None
+                    else None
+                )
+            )(tactic_logits, tactic_labels)
+            loss = technique_loss + self.aux_weight * tactic_loss
+        return SequenceClassifierOutput(loss=loss, logits=technique_logits)
 
 
 class MultiLabelTrainer(Trainer):
@@ -158,7 +261,14 @@ def train(
     deterministic: bool = False,
     push: bool = True,
     metadata_signals: Optional[list[str]] = None,
+    bucket_multitask: bool = False,
+    tactic_aux: Optional[float] = None,
+    cache_dir: str = "~/.cache/vulntrain",
 ) -> None:
+    if bucket_multitask and tactic_aux is not None:
+        sys.exit("--bucket-multitask and --tactic-aux are separate arms")
+    if (bucket_multitask or tactic_aux is not None) and keep_subtechniques:
+        sys.exit("bucket/tactic arms support collapsed parent techniques only")
     # full_determinism sets CUDA_LAUNCH_BLOCKING=1, which deadlocks
     # multi-GPU DataParallel on the first training step (observed on
     # 2x H100: 0 steps in 8 hours). Fail fast instead of hanging.
@@ -236,20 +346,78 @@ def train(
     )
     label_to_id = {label: idx for idx, label in enumerate(label_vocabulary)}
     id_to_label = {idx: label for label, idx in label_to_id.items()}
+    num_labels = len(label_vocabulary)
+
+    tactic_vocabulary: list[str] = []
+    technique_tactics: dict[str, list[str]] = {}
+    if tactic_aux is not None:
+        from vulntrain.attack_texts import load_technique_tactics
+        from vulntrain.datasets.attack_guesser_dataset import (
+            ENTERPRISE_ATTACK_STIX_URL,
+            download_file,
+        )
+
+        stix_path = download_file(
+            ENTERPRISE_ATTACK_STIX_URL,
+            Path(cache_dir).expanduser(),
+            "enterprise-attack.json",
+        )
+        technique_tactics = load_technique_tactics(stix_path)
+        tactic_vocabulary = sorted(
+            {tactic for tactics in technique_tactics.values() for tactic in tactics}
+        )
+        logger.info(
+            f"Tactic auxiliary head (weight {tactic_aux}): "
+            f"{len(tactic_vocabulary)} tactics {tactic_vocabulary}"
+        )
 
     def encode_example(example: dict[str, Any]) -> dict[str, Any]:
-        multi_hot = [0.0] * len(label_vocabulary)
+        multi_hot = [0.0] * num_labels
         for technique in example["techniques"]:
             label = (
                 technique if keep_subtechniques else collapse_subtechnique(technique)
             )
             if label in label_to_id:
                 multi_hot[label_to_id[label]] = 1.0
-        example["labels"] = multi_hot
+        if bucket_multitask:
+            # Bucket-major layout: named buckets from the dataset columns,
+            # `uncategorized` = union minus the named ones, so max over
+            # buckets reproduces the union target exactly.
+            bucketed = [0.0] * (len(LABEL_BUCKETS) * num_labels)
+            named: set[int] = set()
+            for bucket_idx, bucket in enumerate(LABEL_BUCKETS[:-1]):
+                for technique in example.get(bucket, []):
+                    label = collapse_subtechnique(technique)
+                    if label in label_to_id:
+                        index = label_to_id[label]
+                        bucketed[bucket_idx * num_labels + index] = 1.0
+                        named.add(index)
+            for index, value in enumerate(multi_hot):
+                if value and index not in named:
+                    bucketed[
+                        (len(LABEL_BUCKETS) - 1) * num_labels + index
+                    ] = 1.0
+            example["labels"] = bucketed
+        elif tactic_aux is not None:
+            tactic_hot = [0.0] * len(tactic_vocabulary)
+            for technique in example["techniques"]:
+                for tactic in technique_tactics.get(
+                    collapse_subtechnique(technique), []
+                ):
+                    tactic_hot[tactic_vocabulary.index(tactic)] = 1.0
+            example["labels"] = multi_hot + tactic_hot
+        else:
+            example["labels"] = multi_hot
         return example
 
     dataset = dataset.map(encode_example)
-    dataset = dataset.filter(lambda x: sum(x["labels"]) > 0)
+    # Rows with no in-vocabulary technique are dropped. In the tactic arm
+    # the auxiliary tactic slots must not keep a row alive on their own;
+    # in the bucket arm any set slot implies a union technique.
+    if tactic_aux is not None:
+        dataset = dataset.filter(lambda x: sum(x["labels"][:num_labels]) > 0)
+    else:
+        dataset = dataset.filter(lambda x: sum(x["labels"]) > 0)
     logger.info(
         f"Train examples: {len(dataset['train'])}, "
         f"test examples: {len(dataset['test'])}"
@@ -305,11 +473,35 @@ def train(
         [column for column in dataset["train"].column_names if column != "labels"]
     )
 
-    model = AutoModelForSequenceClassification.from_pretrained(
-        base_model,
-        num_labels=len(label_vocabulary),
-        problem_type="multi_label_classification",
-    )
+    if bucket_multitask:
+        model: Any = AutoModelForSequenceClassification.from_pretrained(
+            base_model,
+            num_labels=len(LABEL_BUCKETS) * num_labels,
+            problem_type="multi_label_classification",
+        )
+    elif tactic_aux is not None:
+        classifier = AutoModelForSequenceClassification.from_pretrained(
+            base_model,
+            num_labels=num_labels,
+            problem_type="multi_label_classification",
+        )
+        model = TacticAuxiliaryModel(
+            classifier,
+            num_tactics=len(tactic_vocabulary),
+            aux_weight=tactic_aux,
+            pos_weight_technique=(
+                pos_weight[:num_labels] if pos_weight is not None else None
+            ),
+            pos_weight_tactic=(
+                pos_weight[num_labels:] if pos_weight is not None else None
+            ),
+        )
+    else:
+        model = AutoModelForSequenceClassification.from_pretrained(
+            base_model,
+            num_labels=num_labels,
+            problem_type="multi_label_classification",
+        )
 
     training_args = TrainingArguments(
         output_dir=model_save_dir,
@@ -329,18 +521,33 @@ def train(
         data_seed=seed,
         full_determinism=deterministic,
         hub_model_id=repo_id,
+        # Required for the custom tactic-auxiliary module (harmless
+        # otherwise): tells the Trainer which input key holds the labels.
+        label_names=["labels"],
     )
 
     selection_split = "validation" if val_split > 0.0 else "test"
-    trainer = MultiLabelTrainer(
+    if bucket_multitask:
+        selection_compute_metrics = bucket_union_metrics(len(LABEL_BUCKETS))
+    elif tactic_aux is not None:
+        selection_compute_metrics = technique_slice_metrics(num_labels)
+    else:
+        selection_compute_metrics = compute_metrics
+    # The tactic-auxiliary model computes its own two-part loss; the plain
+    # Trainer uses it. The other arms use the BCE-recomputing trainer.
+    trainer_class = Trainer if tactic_aux is not None else MultiLabelTrainer
+    trainer_kwargs: dict[str, Any] = (
+        {} if tactic_aux is not None else {"pos_weight": pos_weight}
+    )
+    trainer = trainer_class(
         model=model,
         args=training_args,
         train_dataset=tokenized_dataset["train"],
         eval_dataset=tokenized_dataset[selection_split],
         processing_class=tokenizer,
         data_collator=DataCollatorWithPadding(tokenizer),
-        compute_metrics=compute_metrics,
-        pos_weight=pos_weight,
+        compute_metrics=selection_compute_metrics,
+        **trainer_kwargs,
     )
 
     # Save emissions data inside the model directory so it gets pushed to the
@@ -357,16 +564,36 @@ def train(
         trainer.train()
     finally:
         tracker.stop()
-        model.save_pretrained(model_save_dir)
+        # The tactic head is training-time-only supervision: save the
+        # wrapped classifier as a standard checkpoint.
+        saved_model = model.classifier if tactic_aux is not None else model
+        saved_model.save_pretrained(model_save_dir)
         tokenizer.save_pretrained(model_save_dir)
 
-        model.config.id2label = id_to_label
-        model.config.label2id = label_to_id
-        model.config.num_labels = len(label_vocabulary)
-        model.config.problem_type = "multi_label_classification"
+        if bucket_multitask:
+            saved_model.config.id2label = {
+                bucket_idx * num_labels + idx: f"{bucket}:{label}"
+                for bucket_idx, bucket in enumerate(LABEL_BUCKETS)
+                for idx, label in id_to_label.items()
+            }
+            saved_model.config.label2id = {
+                label: idx for idx, label in saved_model.config.id2label.items()
+            }
+            saved_model.config.num_labels = len(LABEL_BUCKETS) * num_labels
+            # Detected by the validator: reshape to (buckets, V) and take
+            # the max over buckets for the union task.
+            saved_model.config.label_buckets = LABEL_BUCKETS
+            saved_model.config.bucket_vocabulary = label_vocabulary
+        else:
+            saved_model.config.id2label = id_to_label
+            saved_model.config.label2id = label_to_id
+            saved_model.config.num_labels = num_labels
+        saved_model.config.problem_type = "multi_label_classification"
         # Recorded so the validator/inference build identical input text.
-        model.config.metadata_inputs = signals
-        model.config.save_pretrained(model_save_dir)
+        saved_model.config.metadata_inputs = signals
+        if tactic_aux is not None:
+            saved_model.config.tactic_aux_weight = tactic_aux
+        saved_model.config.save_pretrained(model_save_dir)
 
     # Always report final metrics on the held-out test split (during training
     # the trainer evaluates the selection split, which may be the validation
@@ -378,7 +605,12 @@ def train(
     logger.info(f"Evaluation metrics: {metrics}")
 
     if push:
-        trainer.push_to_hub()
+        if tactic_aux is not None:
+            # trainer.model is the training-time wrapper; push the
+            # standard classifier saved above instead.
+            saved_model.push_to_hub(repo_id)
+        else:
+            trainer.push_to_hub()
         tokenizer.push_to_hub(repo_id)
         if push_emissions_report(model_save_dir, repo_id):
             logger.info(f"Emissions report pushed to {repo_id}")
@@ -531,6 +763,34 @@ def main() -> None:
         "across runs to measure run-to-run variance.",
     )
     parser.add_argument(
+        "--bucket-multitask",
+        dest="bucket_multitask",
+        action="store_true",
+        help="Predict the three CTID buckets (exploitation / primary / "
+        "secondary impact) plus an uncategorized slot as separate per-"
+        "technique heads instead of the flattened union. The union task "
+        "(max over buckets) drives checkpoint selection and reported "
+        "metrics, so results pair directly with the baseline; the "
+        "validator additionally reports per-bucket ranking quality.",
+    )
+    parser.add_argument(
+        "--tactic-aux",
+        dest="tactic_aux",
+        type=float,
+        default=None,
+        help="Weight of an auxiliary multi-label tactic head trained "
+        "jointly with the technique head (loss = BCE(techniques) + "
+        "WEIGHT * BCE(tactics)). Tactic targets are derived from the gold "
+        "techniques via the STIX kill-chain phases (including below-floor "
+        "gold). The tactic head is dropped at save time; the checkpoint "
+        "stays a standard classifier.",
+    )
+    parser.add_argument(
+        "--cache-dir",
+        default="~/.cache/vulntrain",
+        help="Directory where the ATT&CK STIX data is cached (tactic arm).",
+    )
+    parser.add_argument(
         "--no-push",
         action="store_true",
         help="Do not push the model to the Hugging Face Hub (dry run).",
@@ -573,6 +833,9 @@ def main() -> None:
             metadata_signals=(
                 list(METADATA_SIGNALS) if "all" in args.metadata else args.metadata
             ),
+            bucket_multitask=args.bucket_multitask,
+            tactic_aux=args.tactic_aux,
+            cache_dir=args.cache_dir,
         )
 
 

@@ -56,6 +56,7 @@ from vulntrain.datasets.attack_guesser_dataset import (
     download_file,
 )
 from vulntrain.trainers.attack_guesser import (
+    LABEL_BUCKETS,
     build_label_vocabulary,
     collapse_subtechnique,
 )
@@ -64,6 +65,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 RECALL_KS = (1, 3, 5, 10)
+# The named CTID buckets carried as dataset columns; `uncategorized` is
+# derived (union minus the named buckets).
+NAMED_BUCKETS = LABEL_BUCKETS[:-1]
 
 
 def embed_texts(
@@ -129,9 +133,12 @@ def prepare_evaluation_data(
     list[str],
     list[str],
     list[bool],
+    list[dict[str, set[str]]],
 ]:
     """Return (texts, ids, gold sets, derived candidate sets, vocabulary,
-    label-source groups, gold-CWE presence flags).
+    label-source groups, gold-CWE presence flags, per-row CTID bucket gold
+    --- named buckets only, collapsed and vocabulary-restricted; used by
+    the bucket-multitask evaluation).
 
     Texts are built with the same ``build_input_text`` as the trainer,
     appending the given verbalized metadata signals (none by default).
@@ -169,6 +176,7 @@ def prepare_evaluation_data(
     derived_sets: list[set[str]] = []
     source_groups: list[str] = []
     cwe_flags: list[bool] = []
+    bucket_sets: list[dict[str, set[str]]] = []
     skipped = 0
     for example in examples:
         gold = {
@@ -188,6 +196,16 @@ def prepare_evaluation_data(
         )
         source_groups.append("+".join(sorted(example.get("label_sources") or [])))
         cwe_flags.append(bool(example.get("cwes")))
+        bucket_sets.append(
+            {
+                column: {
+                    collapse_subtechnique(technique)
+                    for technique in example.get(column) or []
+                }
+                & vocabulary_set
+                for column in NAMED_BUCKETS
+            }
+        )
     logger.info(
         f"Evaluating on {len(texts)} {split} examples "
         f"({skipped} skipped: no in-vocabulary technique), "
@@ -201,6 +219,7 @@ def prepare_evaluation_data(
         vocabulary,
         source_groups,
         cwe_flags,
+        bucket_sets,
     )
 
 
@@ -274,7 +293,7 @@ def evaluate_similarity(args: argparse.Namespace) -> dict[str, dict[str, float]]
             "similarity", scores, candidates, gold_sets, head_vocabulary
         )
 
-    texts, _, gold_sets, _, vocabulary, _, _ = prepare_evaluation_data(
+    texts, _, gold_sets, _, vocabulary, _, _, _ = prepare_evaluation_data(
         args.dataset_id, args.split, args.min_examples, vocabulary=None
     )
 
@@ -507,7 +526,7 @@ def evaluate_biencoder(args: argparse.Namespace) -> dict[str, dict[str, float]]:
             "biencoder", scores, candidates, gold_sets, vocabulary, holdout
         )
 
-    texts, _, gold_sets, _, _, source_groups, cwe_flags = prepare_evaluation_data(
+    texts, _, gold_sets, _, _, source_groups, cwe_flags, _ = prepare_evaluation_data(
         args.dataset_id,
         args.split,
         args.min_examples,
@@ -533,16 +552,23 @@ def evaluate_classifier(args: argparse.Namespace) -> dict[str, dict[str, float]]
     model.eval()
 
     # The model's own label vocabulary guarantees a fair comparison with the
-    # training-time protocol.
-    id_to_label = model.config.id2label
-    vocabulary = [id_to_label[index] for index in sorted(id_to_label)]
+    # training-time protocol. A bucket-multitask checkpoint (label_buckets
+    # in its config) emits bucket-major (buckets x V) logits whose union
+    # task is the max over buckets.
+    buckets = list(getattr(model.config, "label_buckets", []) or [])
+    if buckets:
+        vocabulary = list(model.config.bucket_vocabulary)
+        logger.info(f"Bucket-multitask checkpoint: {buckets}")
+    else:
+        id_to_label = model.config.id2label
+        vocabulary = [id_to_label[index] for index in sorted(id_to_label)]
 
     # Build inputs exactly as the model was trained (recorded by the trainer).
     metadata_signals = list(getattr(model.config, "metadata_inputs", []) or [])
     if metadata_signals:
         logger.info(f"Model was trained with metadata inputs: {metadata_signals}")
 
-    texts, _, gold_sets, derived_sets, _, source_groups, cwe_flags = (
+    texts, _, gold_sets, derived_sets, _, source_groups, cwe_flags, bucket_sets = (
         prepare_evaluation_data(
             args.dataset_id,
             args.split,
@@ -566,9 +592,36 @@ def evaluate_classifier(args: argparse.Namespace) -> dict[str, dict[str, float]]
         all_logits.append(output.logits)
     logits = torch.cat(all_logits).numpy()
 
+    bucket_results: dict[str, dict[str, float]] = {}
+    if buckets:
+        per_bucket = logits.reshape(len(logits), len(buckets), len(vocabulary))
+        logits = per_bucket.max(axis=1)
+        # Per-bucket ranking quality (descriptive; the union metrics above
+        # are the paired comparison). Uncategorized gold is derived: union
+        # minus the named buckets.
+        for bucket_idx, bucket in enumerate(buckets):
+            if bucket in NAMED_BUCKETS:
+                restricted = [row[bucket] for row in bucket_sets]
+            else:
+                restricted = [
+                    gold - set().union(*row.values())
+                    for gold, row in zip(gold_sets, bucket_sets)
+                ]
+            rows = [index for index, gold in enumerate(restricted) if gold]
+            if not rows:
+                continue
+            bucket_metrics = rank_and_score(
+                per_bucket[rows, bucket_idx],
+                vocabulary,
+                [restricted[index] for index in rows],
+            )
+            bucket_metrics["n_examples"] = float(len(rows))
+            bucket_results[f"classifier[bucket:{bucket}]"] = bucket_metrics
+
     metrics = rank_and_score(logits, vocabulary, gold_sets)
     metrics.update(threshold_f1(logits, vocabulary, gold_sets))
     results = {"classifier": metrics}
+    results.update(bucket_results)
 
     if args.stratify:
         results.update(

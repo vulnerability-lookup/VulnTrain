@@ -71,3 +71,35 @@ def load_technique_texts(
         if missing:
             logger.warning(f"No STIX text found for techniques: {sorted(missing)}")
     return texts
+
+
+def load_technique_tactics(stix_path: Path) -> dict[str, list[str]]:
+    """Return the tactic short names (kill-chain phases) per active parent
+    technique ID, e.g. ``{'T1059': ['execution'], ...}``. Used as free
+    hierarchical supervision by the tactic-auxiliary trainer arm."""
+    with open(stix_path, encoding="utf-8") as f:
+        bundle = json.load(f)
+    tactics: dict[str, list[str]] = {}
+    for obj in bundle.get("objects", []):
+        if obj.get("type") != "attack-pattern":
+            continue
+        if obj.get("revoked") or obj.get("x_mitre_deprecated"):
+            continue
+        external_id = next(
+            (
+                reference.get("external_id")
+                for reference in obj.get("external_references", [])
+                if reference.get("source_name") == "mitre-attack"
+            ),
+            None,
+        )
+        if not external_id or "." in external_id:
+            continue
+        phases = sorted(
+            phase.get("phase_name", "")
+            for phase in obj.get("kill_chain_phases", [])
+            if phase.get("kill_chain_name") == "mitre-attack"
+        )
+        if phases:
+            tactics[external_id] = phases
+    return tactics
