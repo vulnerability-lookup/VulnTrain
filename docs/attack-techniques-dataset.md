@@ -824,6 +824,52 @@ description-only baseline also moved between sessions again (0.682 →
 0.664 overall recall@5, same seeds and code): a third replication of
 run-to-run variance exceeding seed spread.
 
+### Label semantics: bi-encoder vs classification head (2026-08-12)
+
+A per-label classification head cannot score a technique it was never
+trained on — the 53-technique vocabulary floor is structural. The
+label-semantics alternative (`vulntrain-train-attack-biencoder`) embeds
+the CVE text and each technique's official STIX name+description with
+one shared roberta-base encoder; the score is a learnable affine over
+the cosine, trained with the same weighted BCE, carve-out, and frozen
+vocabulary as the head. Any technique with an official description can
+then be ranked. Head-to-head (five paired seeds, fresh desc baseline,
+n=119):
+
+| model | recall@5 | MRR | micro-F1 | macro-F1 |
+|---|---|---|---|---|
+| classification head | 0.667 ± 0.015 | 0.632 | 0.409 | 0.176 |
+| bi-encoder | 0.643 ± 0.019 | 0.626 | 0.419 | 0.212 |
+| paired Δ | −0.024* | −0.006 | +0.010 | **+0.037*** |
+
+**In-vocabulary, the bi-encoder is the best architectural gain
+measured on this task**: the largest consistent macro-F1 improvement
+of the experiment series (+21% relative on the binding-constraint
+metric), at a small head-class ranking cost concentrated entirely on
+the 17 CWE-absent test rows. Open-vocabulary (ranking over all 222
+active parent techniques, `--candidates full`), it holds 0.515 ± 0.020
+recall@5 — 2.3× a generic zero-shot MiniLM reference (0.227).
+
+**Below the vocabulary floor, the zero-shot promise does not survive
+fine-tuning.** A five-fold label-holdout evaluation
+(`--holdout-techniques`: each fold retrains with ~11 vocabulary
+techniques withheld — no labeled examples, no technique text — and
+scores only the held-out gold over 222 candidates):
+
+| model (recall@5 on held-out gold) | fold 0 | fold 1 | fold 2 | fold 3 | fold 4 | mean ± std |
+|---|---|---|---|---|---|---|
+| bi-encoder (holdout-trained) | 0.057 | 0.010 | 0.321 | 0.000 | 0.229 | 0.123 ± 0.144 |
+| MiniLM (zero-shot, same gold) | 0.211 | 0.078 | 0.369 | 0.333 | 0.195 | 0.237 ± 0.117 |
+
+The fine-tuned encoder ranks unseen techniques *worse* than an
+off-the-shelf embedder in 4 of 5 folds, while staying healthy on its
+trained labels (0.544 ± 0.037 in-vocab recall@5, open candidates):
+fine-tuning specializes the embedding space toward the trained
+technique texts and away from unseen ones. Nothing evaluated is
+operationally usable below the floor (the best, generic MiniLM, gets
+0.24 recall@5 over 222 candidates) — the tail below the vocabulary
+floor is data-bound, and only more curated examples reach it.
+
 ### Inspecting a single CVE
 
 `vulntrain-infer-attack-classification` runs one description (or one CVE
