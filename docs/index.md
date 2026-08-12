@@ -174,6 +174,22 @@ vulntrain-dataset-attack-llm-labeling --mode validate --backend anthropic
 
 ## Model training
 
+All trainers **push to the Hugging Face Hub by default** (the repository
+given with `--repo-id`); pass `--no-push` for a local dry run — the
+convention used by all experiment sweeps. A push uploads the model
+weights, the tokenizer, task-specific extras (e.g. the bi-encoder's
+`technique_texts.json`), and the CodeCarbon emissions report. **Model
+cards are not generated or updated by the trainers**: the README.md of
+each Hub repository is maintained by hand — edit it in the Hub web UI,
+or upload a local file with:
+
+```bash
+hf upload CIRCL/<model-repo> README.md README.md
+```
+
+When retraining a published model, review its card afterwards so the
+reported numbers and dataset revision stay accurate.
+
 ### Severity classification
 
 Generate the model [CIRCL/vulnerability-severity-classification-roberta-base](https://huggingface.co/CIRCL/vulnerability-severity-classification-roberta-base):
