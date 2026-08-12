@@ -41,6 +41,7 @@ anthropic = ["anthropic (>=0.116.0,<0.117.0)"]
 Homepage = "https://github.com/vulnerability-lookup/VulnTrain"
 Repository = "https://github.com/vulnerability-lookup/VulnTrain"
 Changelog = "https://github.com/vulnerability-lookup/VulnTrain/blob/main/CHANGELOG.md"
+Documentation = "https://vulnerability-lookup.github.io/VulnTrain"
 
 
 [project.scripts]
