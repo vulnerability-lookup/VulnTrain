@@ -1,0 +1,363 @@
+# Regenerating the published datasets and models
+
+This page is the maintenance runbook for the datasets and models VulnTrain
+publishes on the Hugging Face Hub under the
+[CIRCL](https://huggingface.co/CIRCL) organization: which command
+regenerates which artifact, what each push does and does not update, and
+where the dataset/model cards are maintained.
+
+## Prerequisites
+
+Ensure that the ``huggingface_hub`` package is installed:
+
+```bash
+pipx install huggingface_hub
+```
+
+Then log in to Hugging Face:
+
+```bash
+hf auth login
+```
+
+Then ensure that the Valkey database of Vulnerability-Lookup is running.
+(This applies to the severity, CNVD, FSTEC, and CWE/patch dataset
+generators, which read raw records from Valkey. The ATT&CK techniques
+dataset generator is the exception: it needs only the Vulnerability-Lookup
+HTTP API and Hugging Face access — see its section below.)
+
+## Published artifacts at a glance
+
+| Hub artifact | Regenerate with | Card |
+|---|---|---|
+| [`CIRCL/vulnerability-scores`](https://huggingface.co/datasets/CIRCL/vulnerability-scores) | `vulntrain-dataset-generation --sources cvelistv5,…` | **auto** (template + stats) |
+| [`CIRCL/Vulnerability-CNVD`](https://huggingface.co/datasets/CIRCL/Vulnerability-CNVD) | `vulntrain-dataset-generation --sources cnvd` | **auto** (static template) |
+| [`CIRCL/Vulnerability-FSTEC`](https://huggingface.co/datasets/CIRCL/Vulnerability-FSTEC) | `vulntrain-dataset-generation --sources fstec` | by hand |
+| [`CIRCL/vulnerability-cwe-patch`](https://huggingface.co/datasets/CIRCL/vulnerability-cwe-patch) | `python vulntrain/datasets/cwe-guesser-dataset.py` | by hand |
+| [`CIRCL/vulnerability-attack-techniques`](https://huggingface.co/datasets/CIRCL/vulnerability-attack-techniques) | `vulntrain-dataset-attack-generation --push`, then `tools/attack/` | by hand |
+| [`…severity-classification-roberta-base`](https://huggingface.co/CIRCL/vulnerability-severity-classification-roberta-base) | `vulntrain-train-severity-classification` | by hand |
+| [`…severity-classification-chinese-macbert-base`](https://huggingface.co/CIRCL/vulnerability-severity-classification-chinese-macbert-base) | `vulntrain-train-severity-cnvd-classification` | **auto** (template) |
+| [`…cwe-classification-modernbert-base`](https://huggingface.co/CIRCL/vulnerability-cwe-classification-modernbert-base) | `vulntrain-train-cwe-classification` | by hand |
+| [`…attack-technique-classification-roberta-base`](https://huggingface.co/CIRCL/vulnerability-attack-technique-classification-roberta-base) | `vulntrain-train-attack-classification` | by hand |
+| [`…attack-technique-biencoder`](https://huggingface.co/CIRCL/vulnerability-attack-technique-biencoder) | `vulntrain-train-attack-biencoder` | by hand |
+| `…description-generation-gpt2*` (several sizes) | `vulntrain-train-description-generation` | by hand |
+
+**Card policy.** Artifacts marked **auto** get their card pushed by the
+generating command, from the templates in `vulntrain/cards/`
+(`dataset_card_vulnerability_scores.md` is filled with dataset statistics
+at generation time; `dataset_card_cnvd.md` and
+`model_card_cnvd_severity.md` are static). For these, **edit the template
+in the repository and commit — never edit the card on the Hub**, or the
+next regeneration silently overwrites your changes (`--no-card` skips the
+card push of `vulntrain-dataset-generation` when you need to). All other
+cards are maintained by hand: edit them in the Hub web UI, or upload a
+local file with
+
+```bash
+hf upload CIRCL/<repo> README.md README.md
+```
+
+After retraining a published model, review its card so the reported
+numbers and dataset revision stay accurate.
+
+## Datasets
+
+### Vulnerability severity scores
+
+Example: Generate [CIRCL/vulnerability-scores](https://huggingface.co/datasets/CIRCL/vulnerability-scores) dataset
+
+```bash
+vulntrain-dataset-generation --sources cvelistv5,github,csaf_redhat,csaf_cisco,csaf_cisa,pysec --repo-id=CIRCL/vulnerability-scores
+```
+
+Useful options: `--commit-message` sets the Hub commit message, `--nb-rows`
+caps the dataset size (0 = all), `--no-card` skips the dataset-card push.
+
+Example: Generate [CIRCL/Vulnerability-CNVD](https://huggingface.co/datasets/CIRCL/Vulnerability-CNVD) dataset
+
+```bash
+vulntrain-dataset-generation --sources cnvd --repo-id=CIRCL/Vulnerability-CNVD
+```
+
+The CNVD dataset includes a `cve_id` field cross-referencing CVE equivalents (~81% of entries).
+See the [dataset card](https://huggingface.co/datasets/CIRCL/Vulnerability-CNVD) for details on coverage, severity distribution, and known caveats.
+
+Example: Generate [CIRCL/Vulnerability-FSTEC](https://huggingface.co/datasets/CIRCL/Vulnerability-FSTEC) dataset (Russian Federal Service for Technical and Export Control / BDU)
+
+```bash
+vulntrain-dataset-generation --sources fstec --repo-id=CIRCL/Vulnerability-FSTEC
+```
+
+The FSTEC dataset extracts CVSS base scores from vector strings (v2.0, v3.0, v4.0) and includes CVE cross-references when available.
+No static card template exists for FSTEC, so its dataset card is maintained by hand.
+
+### CWE/patch dataset
+
+Generate a dataset associating Git fixes with Common Weakness Enumerations (CWEs) found in security advisories:
+
+```bash
+python vulntrain/datasets/cwe-guesser-dataset.py --sources cvelistv5,github,pysec,csaf_redhat --repo-id=CIRCL/vulnerability-cwe-patch
+```
+
+By default the script appends to the existing dataset on the Hub. Pass
+`--from-scratch` to rebuild it entirely (required when the dataset schema
+changes).
+
+### CVE/ATT&CK techniques dataset
+
+Generate a dataset mapping CVEs to MITRE ATT&CK techniques from the hand-curated
+MITRE CTID mappings, with descriptions joined from `CIRCL/vulnerability-scores`:
+
+```bash
+vulntrain-dataset-attack-generation --push --repo-id=CIRCL/vulnerability-attack-techniques
+```
+
+The generator also produces the structured-metadata columns of dataset v2
+(`cvss_vector`/`cvss_version`, `cwes`, `affected_products`, `cpes`): it
+fetches the raw CVE record of every gold CVE over the Vulnerability-Lookup
+HTTP API (disk-cached under `~/.cache/vulntrain/vuln-records/`;
+`--vuln-lookup-url` selects the instance, and an API token can be set in
+`conf.py` or via the `VULNERABILITY_LOOKUP_TOKEN` environment variable).
+No Valkey database is needed for this dataset.
+
+**Updating the published dataset**: regeneration rebuilds every column
+*except* `cwes_predicted` (the CWE-classifier predictions consumed by the
+`--metadata cwe_predicted` training arm). After a regeneration — or after
+retraining the CWE classifier — refresh that column with the two scripts
+in `tools/attack/` (see `tools/attack/README.md`):
+
+```bash
+python3 tools/attack/predict_cwes.py
+python3 tools/attack/update_dataset_cwes_predicted.py
+```
+
+See the [methodology documentation](attack-techniques-dataset.md) for the label
+source analysis (including why the automatically derived CVE2CAPEC labels are
+kept as a separate weak column rather than used as training targets), the
+dataset schema, and known limitations.
+
+To grow the curated ~1,200-CVE gold set, `vulntrain-dataset-attack-llm-labeling`
+labels additional CVEs with an LLM following the same CTID methodology. It
+supports two backends: a local model served by [Ollama](https://ollama.com)
+(`--backend ollama`, no API key or per-token cost — e.g. Qwen on your own GPU
+server) or Claude via the Anthropic API (`--backend anthropic`, needs
+`ANTHROPIC_API_KEY` from [platform.claude.com](https://platform.claude.com);
+a Claude Max subscription does not include API access). Always run the
+validation mode first — it measures agreement against the gold set — before
+scaling up:
+
+```bash
+# Local Ollama model (no API key):
+vulntrain-dataset-attack-llm-labeling --mode validate --backend ollama --model qwen3:32b
+vulntrain-dataset-attack-llm-labeling --mode expand  --backend ollama --model qwen3:32b --sample-n 2000 --push --repo-id=CIRCL/vulnerability-attack-techniques-llm
+
+# Or Claude via the Anthropic API:
+export ANTHROPIC_API_KEY=sk-ant-...
+vulntrain-dataset-attack-llm-labeling --mode validate --backend anthropic
+```
+
+Note that in expand mode a `-<backend>-<model>` slug is appended to
+`--repo-id` (pass `--no-model-suffix` to push to the exact repository
+given).
+
+## Model training
+
+All trainers **push to the Hugging Face Hub by default** (the repository
+given with `--repo-id`); pass `--no-push` for a local dry run — the
+convention used by all experiment sweeps. A push uploads the model
+weights, the tokenizer, task-specific extras (e.g. the bi-encoder's
+`technique_texts.json`), and the CodeCarbon emissions report. Model
+cards follow the card policy above: only the CNVD severity trainer
+pushes one (from its template); every other model card is maintained by
+hand.
+
+### Severity classification
+
+Generate the model [CIRCL/vulnerability-severity-classification-roberta-base](https://huggingface.co/CIRCL/vulnerability-severity-classification-roberta-base):
+
+```bash
+vulntrain-train-severity-classification --base-model roberta-base --dataset-id CIRCL/vulnerability-scores --repo-id CIRCL/vulnerability-severity-classification-roberta-base
+```
+
+Generate the model [CIRCL/vulnerability-severity-classification-chinese-macbert-base](https://huggingface.co/CIRCL/vulnerability-severity-classification-chinese-macbert-base):
+
+```bash
+vulntrain-train-severity-cnvd-classification --base-model hfl/chinese-macbert-base --dataset-id CIRCL/Vulnerability-CNVD --repo-id CIRCL/vulnerability-severity-classification-chinese-macbert-base
+```
+
+The CNVD trainer uses a deduplicated train/test split to prevent data leakage and supports different loss strategies via `--class-weights` (`none`, `sqrt`, `balanced`, `focal`). Defaults to uniform loss. See the [improvements report](cnvd-severity-improvements.md) for details.
+
+Generate a Russian severity classifier using FSTEC data and [ruRoberta-large](https://huggingface.co/ai-forever/ruRoberta-large):
+
+```bash
+vulntrain-train-severity-classification --base-model ai-forever/ruRoberta-large --dataset-id CIRCL/Vulnerability-FSTEC --repo-id CIRCL/vulnerability-severity-classification-russian-ruRoberta-large
+```
+
+### CWE classification
+
+Predict CWE classifications from vulnerability descriptions and associated patches.
+The recommended base model is [ModernBERT-base](https://huggingface.co/answerdotai/ModernBERT-base),
+whose 8192-token context window can take the full patches into account:
+
+```bash
+vulntrain-train-cwe-classification --base-model answerdotai/ModernBERT-base --dataset-id CIRCL/vulnerability-cwe-patch --repo-id CIRCL/vulnerability-cwe-classification-modernbert-base --batch-size 8
+```
+
+Shorter-context models such as `roberta-base` also work (truncation adapts to
+the model's maximum input length, overridable with `--max-length`). The loss
+strategy for class imbalance can be selected with `--class-weights` (`none`,
+`sqrt`, `balanced`, `focal`; defaults to `balanced`), and `--epochs`,
+`--learning-rate` and `--batch-size` control the schedule. Reported metrics
+include top-3/top-5 accuracy, since the model is used to suggest candidate
+CWEs. See the [improvements report](cwe-classification-improvements.md) for
+the reasoning behind these options.
+
+The trainer maps each CWE of the dataset to an ancestor CWE via
+`vulntrain/data/deep_child_to_ancestor.json`, built so that every training
+label has an *Allowed* or *Allowed-with-Review* MITRE mapping usage: the model
+can never suggest a Discouraged or Prohibited CWE.
+
+This mapping is versioned and shipped with VulnTrain, so no extra step is
+required before training. To optionally refresh it against the latest CWE
+data from [Vulnerability-Lookup](https://vulnerability.circl.lu), run the
+following commands before training and commit the regenerated files:
+
+```bash
+python tools/cwe/update_cwe_knowledge_base.py   # refresh the CWE knowledge base from the API
+python tools/cwe/build_child_to_ancestor.py     # regenerate vulntrain/data/deep_child_to_ancestor.json
+```
+
+See `tools/cwe/README.md` for details.
+
+After retraining the CWE classifier, refresh the `cwes_predicted` column
+of the ATT&CK techniques dataset (see the dataset section above).
+
+### ATT&CK technique classification
+
+Suggest MITRE ATT&CK (Enterprise) techniques from vulnerability descriptions.
+This is a **multi-label** task (a CVE maps to an exploitation technique plus
+one or more impacts), trained with a sigmoid head and binary cross-entropy on
+the [CIRCL/vulnerability-attack-techniques](https://huggingface.co/datasets/CIRCL/vulnerability-attack-techniques)
+dataset:
+
+```bash
+vulntrain-train-attack-classification --base-model roberta-base --dataset-id CIRCL/vulnerability-attack-techniques --repo-id CIRCL/vulnerability-attack-technique-classification-roberta-base
+```
+
+Sub-techniques are collapsed to their parent technique (`--keep-subtechniques`
+to disable) and only techniques with at least `--min-examples` (default 5)
+training examples are kept in the label vocabulary. Per-label BCE positive
+weights counter class imbalance (`--class-weights none|sqrt|balanced`), and
+`--epochs`, `--learning-rate`, `--batch-size` and `--max-length` control the
+schedule as in the CWE trainer. Reported metrics include recall@3/recall@5,
+since the model is used to suggest candidate techniques for analyst review.
+
+Protocol options shared by all ATT&CK trainers: `--val-split` carves a
+gold-only validation split out of the train split for best-checkpoint
+selection (the test split is evaluated exactly once, at the end);
+`--seed` varies weight init and data order for multi-seed comparisons;
+`--train-fraction` subsamples the gold train split for scaling curves
+(the label vocabulary stays frozen to the full split); `--no-push` keeps
+a run local. `--metadata cvss|cwe|cwe_predicted|products|derived|all`
+appends verbalized structured metadata to the input text — the enabled
+signals are recorded in the model config and read back automatically at
+validation and inference time, so train and evaluation inputs cannot
+diverge. Two research arms from the follow-up experiments are also
+available: `--bucket-multitask` (per-role technique heads over the CTID
+exploitation/impact structure) and `--tactic-aux` (auxiliary tactic-level
+head) — both measured as harmful to the union task and documented in the
+[methodology documentation](attack-techniques-dataset.md); the deployed
+configuration remains the flattened-union, description-only classifier
+(with gold CWE appended where a curated assignment exists).
+
+The resulting model,
+[CIRCL/vulnerability-attack-technique-classification-roberta-base](https://huggingface.co/CIRCL/vulnerability-attack-technique-classification-roberta-base),
+roughly doubles the zero-shot similarity baseline (recall@5 0.69 vs 0.32 —
+see the Validation section below). See the
+[methodology documentation](attack-techniques-dataset.md) for the dataset
+provenance, the full evaluation, and known limitations.
+
+### ATT&CK technique bi-encoder (label semantics)
+
+Instead of a per-label classification head, the bi-encoder scores the CVE
+text against the official ATT&CK technique name+description with one
+shared encoder — so it can rank *any* technique with an official
+description, not just the training vocabulary:
+
+```bash
+vulntrain-train-attack-biencoder --base-model roberta-base --dataset-id CIRCL/vulnerability-attack-techniques --repo-id CIRCL/vulnerability-attack-technique-biencoder
+```
+
+The push includes the technique texts used at training time
+(`technique_texts.json`) and the trained scoring calibration in the model
+config (`biencoder` entry), so validation reproduces the training-time
+scoring exactly. `--holdout-techniques` implements the label-holdout
+zero-shot protocol (the model sees neither labeled examples nor the
+technique text for the held-out techniques). Compared with the
+classification head, the bi-encoder trades a small recall@5 cost for the
+largest consistent macro-F1 (rare-technique) gain measured on this task —
+prefer it when tail coverage matters more than top-5 sharpness; see the
+[methodology documentation](attack-techniques-dataset.md).
+
+### Text generation
+
+Train a GPT-2 model to generate vulnerability descriptions:
+
+```bash
+vulntrain-train-description-generation --base-model gpt2-xl --dataset-id CIRCL/vulnerability-scores --repo-id CIRCL/vulnerability-description-generation-gpt2-xl
+```
+
+## Validation
+
+### Severity model comparison (CNVD)
+
+Compare old and new CNVD severity models on a deduplicated test set:
+
+```bash
+python -m vulntrain.validators.severity_cnvd \
+  --old-model CIRCL/vulnerability-severity-classification-chinese-macbert-base \
+  --new-model CIRCL/vulnerability-severity-classification-chinese-macbert-base-test
+```
+
+### ATT&CK technique models
+
+Evaluate ATT&CK technique suggestion on the test split of
+[CIRCL/vulnerability-attack-techniques](https://huggingface.co/datasets/CIRCL/vulnerability-attack-techniques).
+The zero-shot similarity baseline (SMET-style: rank techniques by cosine
+similarity between the description embedding and the official ATT&CK
+technique descriptions) and a fine-tuned classifier share the same protocol,
+so their recall@k/MRR numbers are directly comparable — the trained model has
+to beat the baseline to justify existing:
+
+```bash
+vulntrain-validate-attack-classification --method similarity
+vulntrain-validate-attack-classification --method classifier --model CIRCL/vulnerability-attack-technique-classification-roberta-base
+vulntrain-validate-attack-classification --method biencoder --model CIRCL/vulnerability-attack-technique-biencoder
+```
+
+Useful options: `--stratify` breaks results down by label source
+(`ctid_cve`/`ctid_kev`) and gold-CWE presence — the strata where the
+metadata effects live; `--split validation` reconstructs the trainer's
+gold-only carve-out for tuning without touching the test split;
+`--prior boost|mask` fuses the CVE2CAPEC-derived candidates as an
+inference-time re-ranking prior (measured harmful — kept for
+reproducibility); `--candidates full` (similarity and biencoder only)
+ranks over *all* active enterprise parent techniques instead of the
+training vocabulary, reporting in-vocabulary and below-floor gold
+separately. Metadata-trained and bucket-multitask checkpoints are
+detected automatically from the model config — no extra flags needed.
+
+Inspect a single CVE (or free-text description) against any trained
+checkpoint, with gold techniques shown when the CVE is in the dataset:
+
+```bash
+vulntrain-infer-attack-classification --cve CVE-2021-44077 --model CIRCL/vulnerability-attack-technique-classification-roberta-base
+```
+
+### Text generation
+
+Send prompts to a model trained for vulnerability description generation:
+
+```bash
+vulntrain-validate-text-generation --prompt "A new vulnerability in OpenSSL allows attackers to" --model CIRCL/vulnerability-description-generation-gpt2-large
+```
