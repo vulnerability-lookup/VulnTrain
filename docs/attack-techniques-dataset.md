@@ -870,6 +870,15 @@ operationally usable below the floor (the best, generic MiniLM, gets
 0.24 recall@5 over 222 candidates) — the tail below the vocabulary
 floor is data-bound, and only more curated examples reach it.
 
+A seed-42 bi-encoder is published as
+[`CIRCL/vulnerability-attack-technique-biencoder`](https://huggingface.co/CIRCL/vulnerability-attack-technique-biencoder)
+(DOI: [10.57967/hf/9968](https://doi.org/10.57967/hf/9968)), shipping
+the training-time technique texts (`technique_texts.json`) and scoring
+calibration (`config.biencoder`) alongside the weights; the model card
+carries a usage snippet and the zero-shot caveat. Prefer it over the
+classification head when rare-technique coverage matters more than
+top-5 sharpness.
+
 ### Bucket-aware training: role structure costs union accuracy (2026-08-12)
 
 The CTID methodology assigns each technique a role — exploitation
@@ -954,6 +963,10 @@ DOIs generated via Hugging Face / DataCite on 2026-07-17.
 - Model [`...-classification-pilot`](https://huggingface.co/CIRCL/vulnerability-attack-technique-classification-pilot)
   — the pilot expansion experiment's checkpoint; superseded, kept only as a
   stage of the released experiment history (deliberately no DOI).
+- Model [`...-attack-technique-biencoder`](https://huggingface.co/CIRCL/vulnerability-attack-technique-biencoder)
+  — the label-semantics bi-encoder (2026-08-12, seed 42): best macro-F1
+  (rare techniques), open-vocabulary capable, zero-shot caveat on the
+  card. DOI: [10.57967/hf/9968](https://doi.org/10.57967/hf/9968)
 
 ### Still to do
 
