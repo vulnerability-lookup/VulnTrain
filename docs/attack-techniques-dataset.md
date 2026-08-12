@@ -870,6 +870,41 @@ operationally usable below the floor (the best, generic MiniLM, gets
 0.24 recall@5 over 222 candidates) — the tail below the vocabulary
 floor is data-bound, and only more curated examples reach it.
 
+### Bucket-aware training: role structure costs union accuracy (2026-08-12)
+
+The CTID methodology assigns each technique a role — exploitation
+technique, primary impact, secondary impact — that the flattened union
+target discards. Two trainer arms tested whether that structure helps
+(3 arms × 5 paired seeds, fresh same-session baseline):
+
+- `--bucket-multitask` widens the head to 4×53 blocks (the three named
+  roles plus an uncategorized slot for the ~27% of training occurrences
+  the source mapping leaves unbucketed); the union task (max over
+  buckets) drives checkpoint selection and reported metrics, so the
+  paired comparison is exact.
+- `--tactic-aux 0.5` adds an auxiliary tactic-level head (15 tactics in
+  the current STIX bundle) supervised for free from the gold techniques'
+  kill-chain phases, dropped at save time.
+
+| arm (Δ vs union baseline) | recall@5 | recall@3 | MRR | micro-F1 | macro-F1 |
+|---|---|---|---|---|---|
+| union baseline (absolute) | 0.668 ± 0.018 | 0.539 | 0.642 | 0.413 | 0.182 |
+| bucket multi-task | −0.076* | −0.083* | −0.044* | −0.065* | −0.072* |
+| tactic auxiliary | −0.018 | −0.065* | −0.061* | −0.036* | −0.030* |
+
+**Both arms lose; the bucket arm loses on every metric consistently.**
+Splitting ~2,500 positive training occurrences across four role blocks
+starves each of them — at ~1,000 examples the union task needs all the
+supervision on one head. The tactic gradient competes rather than
+regularizes (λ untuned; measured harm at the one pre-registered
+weight). The structure itself is learnable, though: scored against
+role-restricted gold, the bucket model ranks the exploitation
+technique at 0.781 recall@5, primary impact at 0.682, secondary impact
+at 0.527 — role-conditioned prediction (which the union model cannot
+express) works, at a union-accuracy price a deployment likely won't
+pay. The flattened-union, description-only classifier remains the
+deployment configuration.
+
 ### Inspecting a single CVE
 
 `vulntrain-infer-attack-classification` runs one description (or one CVE
