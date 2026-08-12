@@ -43,6 +43,9 @@ Three types of commands are available:
 - **Model training**: Train models using the prepared datasets.
 - **Model validation**: Assess the performance of trained models (validations, benchmarks, etc.).
 
+A documentation is available here: https://vulnerability-lookup.github.io/VulnTrain
+
+
 ### CLI commands
 
 | Command | Purpose |

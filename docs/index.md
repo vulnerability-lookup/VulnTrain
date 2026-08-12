@@ -285,10 +285,10 @@ vulntrain-validate-text-generation --prompt "A new vulnerability in OpenSSL allo
 
 ## Citation
 
-Bonhomme, C., Dulaunoy, A. (2025). VLAI: A RoBERTa-Based Model for Automated Vulnerability Severity Classification (Version 1.4.0) [Computer software]. https://arxiv.org/abs/2507.03607
-
-Cédric Bonhomme, Alexandre Dulaunoy, “VLAI: A RoBERTa-Based Model for Automated Vulnerability Severity Classification”, preprint for the 25V4C-TC: 2025 Vulnerability Forecasting Technical Colloquia, Darwin College, Cambridge, UK, September 25–26, 2025.  
-https://arxiv.org/abs/2507.03607
+- Bonhomme, C., & Dulaunoy, A. (2026). Mapping CVEs to MITRE ATT&CK Techniques: A Curated Gold-Set Classifier and the Limits of LLM-Assisted Label Expansion.
+  [arXiv](https://arxiv.org/abs/2607.25572)
+- Bonhomme, C., & Dulaunoy, A. (2025). VLAI: A RoBERTa-Based Model for Automated Vulnerability Severity Classification. ArXiv, abs/2507.03607.
+  [arXiv](https://arxiv.org/abs/2507.03607)
 
 
 ## License
