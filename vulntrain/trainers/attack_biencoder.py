@@ -140,6 +140,7 @@ def train(
     cache_dir: str = "~/.cache/vulntrain",
     push: bool = True,
     metadata_signals: Optional[list[str]] = None,
+    holdout_techniques: Optional[list[str]] = None,
 ) -> None:
     if not 0.0 < train_fraction <= 1.0:
         sys.exit(f"--train-fraction must be in (0, 1], got {train_fraction}")
@@ -173,6 +174,25 @@ def train(
         min_examples,
         keep_subtechniques=False,
     )
+
+    # Label-holdout zero-shot protocol: drop the held-out techniques from
+    # the vocabulary so the model never sees a labeled example nor the
+    # technique text for them; examples whose gold reduces to nothing are
+    # filtered out below. Evaluate with the open-vocabulary validator
+    # (--candidates full), whose held-out-gold stratum isolates them.
+    if holdout_techniques:
+        held_out = set(holdout_techniques)
+        unknown = sorted(held_out - set(label_vocabulary))
+        if unknown:
+            sys.exit(f"--holdout-techniques not in the label vocabulary: {unknown}")
+        label_vocabulary = [
+            label for label in label_vocabulary if label not in held_out
+        ]
+        logger.info(
+            f"Holding out {len(held_out)} techniques from the vocabulary "
+            f"({len(label_vocabulary)} remain): {' '.join(sorted(held_out))}"
+        )
+
     label_to_id = {label: idx for idx, label in enumerate(label_vocabulary)}
 
     stix_path = download_file(
@@ -323,6 +343,7 @@ def train(
             "logit_scale": float(model.logit_scale.item()),
             "logit_bias": float(model.logit_bias.item()),
             "technique_max_length": technique_max_length,
+            "holdout_techniques": sorted(holdout_techniques or []),
         }
         encoder.config.metadata_inputs = signals
         encoder.save_pretrained(model_save_dir)
@@ -463,6 +484,16 @@ def main() -> None:
         help="Random seed for training (weight init, data shuffling).",
     )
     parser.add_argument(
+        "--holdout-techniques",
+        dest="holdout_techniques",
+        default=None,
+        help="Comma-separated technique IDs to hold out of the label "
+        "vocabulary (zero-shot label-holdout protocol): the model sees "
+        "neither a labeled example nor the technique text for them. "
+        "Evaluate with --candidates full; the held-out-gold stratum "
+        "isolates their occurrences.",
+    )
+    parser.add_argument(
         "--cache-dir",
         default="~/.cache/vulntrain",
         help="Directory where the ATT&CK STIX data is cached.",
@@ -507,6 +538,11 @@ def main() -> None:
             push=not args.no_push,
             metadata_signals=(
                 list(METADATA_SIGNALS) if "all" in args.metadata else args.metadata
+            ),
+            holdout_techniques=(
+                args.holdout_techniques.split(",")
+                if args.holdout_techniques
+                else None
             ),
         )
 

@@ -403,11 +403,15 @@ def open_vocabulary_results(
     candidates: list[str],
     gold_sets: list[set[str]],
     head_vocabulary: list[str],
+    holdout: Optional[set[str]] = None,
 ) -> dict[str, dict[str, float]]:
     """Ranking metrics over the full candidate universe: overall, restricted
     to the in-vocabulary gold, and restricted to the below-floor gold ---
     techniques under the training vocabulary floor, which the model (if
-    trained) never saw a labeled example for."""
+    trained) never saw a labeled example for. For a model trained with
+    --holdout-techniques, a fourth stratum isolates the deliberately
+    held-out gold (a subset of below-floor, which also holds the natural
+    tail)."""
     head = set(head_vocabulary)
     results: dict[str, dict[str, float]] = {}
     subsets: list[tuple[str, list[set[str]]]] = [
@@ -415,6 +419,10 @@ def open_vocabulary_results(
         ("open/in-vocab-gold", [gold & head for gold in gold_sets]),
         ("open/below-floor-gold", [gold - head for gold in gold_sets]),
     ]
+    if holdout:
+        subsets.append(
+            ("open/held-out-gold", [gold & holdout for gold in gold_sets])
+        )
     for name, restricted in subsets:
         rows = [index for index, gold in enumerate(restricted) if gold]
         if not rows:
@@ -494,8 +502,9 @@ def evaluate_biencoder(args: argparse.Namespace) -> dict[str, dict[str, float]]:
             args.dataset_id, args.split, set(candidates), metadata_signals
         )
         scores = score(texts, [candidate_texts[label] for label in candidates])
+        holdout = set(biencoder.get("holdout_techniques", []) or [])
         return open_vocabulary_results(
-            "biencoder", scores, candidates, gold_sets, vocabulary
+            "biencoder", scores, candidates, gold_sets, vocabulary, holdout
         )
 
     texts, _, gold_sets, _, _, source_groups, cwe_flags = prepare_evaluation_data(
