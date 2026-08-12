@@ -73,6 +73,10 @@ hf auth login
 ```
 
 Then ensure that the Valkey database of Vulnerability-Lookup is running.
+(This applies to the severity, CNVD, FSTEC, and CWE/patch dataset
+generators, which read raw records from Valkey. The ATT&CK techniques
+dataset generator is the exception: it needs only the Vulnerability-Lookup
+HTTP API and Hugging Face access — see its section below.)
 
 
 ### Vulnerability severity scores
@@ -121,6 +125,25 @@ MITRE CTID mappings, with descriptions joined from `CIRCL/vulnerability-scores`:
 
 ```bash
 vulntrain-dataset-attack-generation --push --repo-id=CIRCL/vulnerability-attack-techniques
+```
+
+The generator also produces the structured-metadata columns of dataset v2
+(`cvss_vector`/`cvss_version`, `cwes`, `affected_products`, `cpes`): it
+fetches the raw CVE record of every gold CVE over the Vulnerability-Lookup
+HTTP API (disk-cached under `~/.cache/vulntrain/vuln-records/`;
+`--vuln-lookup-url` selects the instance, and an API token can be set in
+`conf.py` or via the `VULNERABILITY_LOOKUP_TOKEN` environment variable).
+No Valkey database is needed for this dataset.
+
+**Updating the published dataset**: regeneration rebuilds every column
+*except* `cwes_predicted` (the CWE-classifier predictions consumed by the
+`--metadata cwe_predicted` training arm). After a regeneration — or after
+retraining the CWE classifier — refresh that column with the two scripts
+in `tools/attack/` (see `tools/attack/README.md`):
+
+```bash
+python3 tools/attack/predict_cwes.py
+python3 tools/attack/update_dataset_cwes_predicted.py
 ```
 
 See the [methodology documentation](attack-techniques-dataset.md) for the label
@@ -230,12 +253,52 @@ weights counter class imbalance (`--class-weights none|sqrt|balanced`), and
 schedule as in the CWE trainer. Reported metrics include recall@3/recall@5,
 since the model is used to suggest candidate techniques for analyst review.
 
+Protocol options shared by all ATT&CK trainers: `--val-split` carves a
+gold-only validation split out of the train split for best-checkpoint
+selection (the test split is evaluated exactly once, at the end);
+`--seed` varies weight init and data order for multi-seed comparisons;
+`--train-fraction` subsamples the gold train split for scaling curves
+(the label vocabulary stays frozen to the full split); `--no-push` keeps
+a run local. `--metadata cvss|cwe|cwe_predicted|products|derived|all`
+appends verbalized structured metadata to the input text — the enabled
+signals are recorded in the model config and read back automatically at
+validation and inference time, so train and evaluation inputs cannot
+diverge. Two research arms from the follow-up experiments are also
+available: `--bucket-multitask` (per-role technique heads over the CTID
+exploitation/impact structure) and `--tactic-aux` (auxiliary tactic-level
+head) — both measured as harmful to the union task and documented in the
+[methodology documentation](attack-techniques-dataset.md); the deployed
+configuration remains the flattened-union, description-only classifier
+(with gold CWE appended where a curated assignment exists).
+
 The resulting model,
 [CIRCL/vulnerability-attack-technique-classification-roberta-base](https://huggingface.co/CIRCL/vulnerability-attack-technique-classification-roberta-base),
 roughly doubles the zero-shot similarity baseline (recall@5 0.69 vs 0.32 —
 see the Validation section below). See the
 [methodology documentation](attack-techniques-dataset.md) for the dataset
 provenance, the full evaluation, and known limitations.
+
+### ATT&CK technique bi-encoder (label semantics)
+
+Instead of a per-label classification head, the bi-encoder scores the CVE
+text against the official ATT&CK technique name+description with one
+shared encoder — so it can rank *any* technique with an official
+description, not just the training vocabulary:
+
+```bash
+vulntrain-train-attack-biencoder --base-model roberta-base --dataset-id CIRCL/vulnerability-attack-techniques --repo-id CIRCL/vulnerability-attack-technique-biencoder
+```
+
+The push includes the technique texts used at training time
+(`technique_texts.json`) and the trained scoring calibration in the model
+config (`biencoder` entry), so validation reproduces the training-time
+scoring exactly. `--holdout-techniques` implements the label-holdout
+zero-shot protocol (the model sees neither labeled examples nor the
+technique text for the held-out techniques). Compared with the
+classification head, the bi-encoder trades a small recall@5 cost for the
+largest consistent macro-F1 (rare-technique) gain measured on this task —
+prefer it when tail coverage matters more than top-5 sharpness; see the
+[methodology documentation](attack-techniques-dataset.md).
 
 
 ### Text generation
@@ -273,6 +336,26 @@ to beat the baseline to justify existing:
 ```bash
 vulntrain-validate-attack-classification --method similarity
 vulntrain-validate-attack-classification --method classifier --model CIRCL/vulnerability-attack-technique-classification-roberta-base
+vulntrain-validate-attack-classification --method biencoder --model CIRCL/vulnerability-attack-technique-biencoder
+```
+
+Useful options: `--stratify` breaks results down by label source
+(`ctid_cve`/`ctid_kev`) and gold-CWE presence — the strata where the
+metadata effects live; `--split validation` reconstructs the trainer's
+gold-only carve-out for tuning without touching the test split;
+`--prior boost|mask` fuses the CVE2CAPEC-derived candidates as an
+inference-time re-ranking prior (measured harmful — kept for
+reproducibility); `--candidates full` (similarity and biencoder only)
+ranks over *all* active enterprise parent techniques instead of the
+training vocabulary, reporting in-vocabulary and below-floor gold
+separately. Metadata-trained and bucket-multitask checkpoints are
+detected automatically from the model config — no extra flags needed.
+
+Inspect a single CVE (or free-text description) against any trained
+checkpoint, with gold techniques shown when the CVE is in the dataset:
+
+```bash
+vulntrain-infer-attack-classification --cve CVE-2021-44077 --model CIRCL/vulnerability-attack-technique-classification-roberta-base
 ```
 
 ### Text generation
