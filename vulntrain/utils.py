@@ -74,7 +74,7 @@ def extract_cpe(data) -> list[str]:
                             )
 
     # default container
-    for elem in data["containers"]["cna"]["affected"]:
+    for elem in data.get("containers", {}).get("cna", {}).get("affected", []):
         if "cpes" in elem:
             vuln_cpes.extend(elem["cpes"])
 
