@@ -9,9 +9,6 @@ VulnTrain offers a suite of commands to generate diverse AI datasets and train m
 comprehensive vulnerability data from [Vulnerability-Lookup](https://github.com/vulnerability-lookup/vulnerability-lookup).
 It harnesses over one million JSON records from all supported advisory sources (CVE, GitHub advisories, CSAF, PySecDB, CNVD) to build high-quality, domain-specific models.
 
-Additionally, data from the ``vulnerability-lookup:meta`` container, including enrichment sources such as vulnrichment and Fraunhofer FKIE,
-is incorporated to enhance model quality.
-
 Check out the datasets and models on Hugging Face:
 
 [![Model on HF](https://huggingface.co/datasets/huggingface/badges/resolve/main/model-on-hf-xl-dark.svg)](https://huggingface.co/CIRCL)
@@ -60,11 +57,6 @@ Three types of commands are available:
 | `vulntrain-validate-severity-classification` | Validate severity model |
 | `vulntrain-validate-text-generation` | Validate text generation model |
 
-
-### Models
-
-- Severity classification: [![Model on HF](https://huggingface.co/datasets/huggingface/badges/resolve/main/model-on-hf-sm-dark.svg)](https://huggingface.co/CIRCL/vulnerability-severity-classification-roberta-base)
-- Description generation: [![Model on HF](https://huggingface.co/datasets/huggingface/badges/resolve/main/model-on-hf-sm-dark.svg)](https://huggingface.co/CIRCL/vulnerability-description-generation-gpt2#how-to-get-started-with-the-model)
 
 
 ## How to cite
