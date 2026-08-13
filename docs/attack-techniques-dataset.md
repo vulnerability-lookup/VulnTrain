@@ -9,6 +9,55 @@ vulnerability description: CVSS tells you *how bad* a vulnerability is, CWE
 tells you *what kind of flaw* it is, ATT&CK tells defenders *what adversary
 behavior to expect and detect*. Very few public models cover that gap.
 
+## Findings at a glance
+
+The experiment series behind this page spans two papers (the original
+classifier + LLM-expansion study, and the metadata/label-semantics
+follow-up). The main points to remember, each detailed with full
+protocol and numbers in its dated section below:
+
+- **The task is label-quality bound, not data bound.** LLM-assisted
+  label expansion at ≈ 0.39 labeler agreement brings no reliable gain.
+  Growing the *curated* gold set is the one intervention with measured
+  payoff — every scaling curve still rises at the current size
+  (1,207 CVEs).
+- **Free metadata does not pay.** The CVSS vector is null, affected
+  products (CPE) and the CVE2CAPEC-derived candidates are mildly
+  harmful, and concatenating all signals lands below the
+  description-only baseline. The one conditional positive is the
+  **curated gold CWE** (+0.030 recall@5 pooled over ten paired runs),
+  concentrated entirely on the KEV-curated rows; substituting a
+  *predicted* CWE recovers less than half of that, and none of it
+  consistently.
+- **The CWE → CAPEC → ATT&CK derivation chain is closed** for this
+  task: its candidate sets cover only 3.3 % of the analyst-chosen
+  techniques on the held-out split, so it fails both as a label source
+  and as a re-ranking prior.
+- **Structural training signals hurt at this scale.** Splitting the
+  head across the CTID exploitation/impact roles (bucket multi-task)
+  or adding a free tactic-level auxiliary loss both degrade the union
+  task — at ~1,000 examples every signal competes for the same
+  supervision budget.
+
+**Which model to use** (head-to-head, five paired seeds, same
+session):
+
+- [`…-classification-roberta-base`](https://huggingface.co/CIRCL/vulnerability-attack-technique-classification-roberta-base)
+  (classification head) — best top-5 ranking on the 53 trained
+  techniques (recall@5 0.667 ± 0.015). The deployment default:
+  description-only, flattened union, with the gold CWE appended when a
+  curated assignment exists.
+- [`…-attack-technique-biencoder`](https://huggingface.co/CIRCL/vulnerability-attack-technique-biencoder)
+  (label-semantics bi-encoder) — slightly lower recall@5
+  (0.643 ± 0.019) but the largest consistent rare-technique gain
+  measured on this task (macro-F1 0.212 vs 0.176, +21 % relative) and
+  open-vocabulary ranking over all 222 active parent techniques
+  (recall@5 0.515, 2.3× a generic zero-shot sentence embedder).
+  Prefer it when rare-technique coverage matters more than top-5
+  sharpness. Caveat: on techniques absent from training it ranks
+  *worse* than an off-the-shelf embedder (recall@5 0.12 vs 0.24) —
+  below the vocabulary floor, only curated examples help.
+
 ## Workflow at a glance
 
 ```mermaid
@@ -834,7 +883,7 @@ one shared roberta-base encoder; the score is a learnable affine over
 the cosine, trained with the same weighted BCE, carve-out, and frozen
 vocabulary as the head. Any technique with an official description can
 then be ranked. Head-to-head (five paired seeds, fresh desc baseline,
-n=119):
+n=118):
 
 | model | recall@5 | MRR | micro-F1 | macro-F1 |
 |---|---|---|---|---|
