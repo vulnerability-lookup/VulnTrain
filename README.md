@@ -5,11 +5,16 @@
 [![PyPi version](https://img.shields.io/pypi/v/VulnTrain.svg?style=flat-square)](https://pypi.org/project/VulnTrain)
 
 
-VulnTrain offers a suite of commands to generate diverse AI datasets and train models using
-comprehensive vulnerability data from [Vulnerability-Lookup](https://github.com/vulnerability-lookup/vulnerability-lookup).
-It harnesses over one million JSON records from all supported advisory sources (CVE, GitHub advisories, CSAF, PySecDB, CNVD) to build high-quality, domain-specific models.
+VulnTrain turns the vulnerability data collected by
+[Vulnerability-Lookup](https://github.com/vulnerability-lookup/vulnerability-lookup)
+into AI datasets and trained models. It processes over one million advisory records
+(CVE, GitHub advisories, CSAF, PySecDB, CNVD, FSTEC) to answer questions such as:
 
-Check out the datasets and models on Hugging Face:
+- How severe is this vulnerability, given only its description?
+- Which CWE does this patch fix?
+- Which MITRE ATT&CK techniques does this CVE enable?
+
+All resulting datasets and models are published on Hugging Face:
 
 [![Model on HF](https://huggingface.co/datasets/huggingface/badges/resolve/main/model-on-hf-xl-dark.svg)](https://huggingface.co/CIRCL)
 
@@ -30,8 +35,9 @@ poetry install
 
 ## Documentation
 
-A documentation is available here: https://vulnerability-lookup.github.io/VulnTrain
-for detailed usage instructions, dataset generation examples, and training recipes.
+Full documentation — configuration, dataset generation, training recipes and
+methodology — is available at
+https://vulnerability-lookup.github.io/VulnTrain
 
 For more information about the use of AI in Vulnerability-Lookup, please refer to the
 [user manual](https://www.vulnerability-lookup.org/user-manual/ai/).
@@ -39,24 +45,44 @@ For more information about the use of AI in Vulnerability-Lookup, please refer t
 
 ## Usage
 
-Three types of commands are available:
+Every task follows the same three stages, each with its own command.
 
-- **Dataset generation**: Create and prepare datasets from vulnerability sources.
-- **Model training**: Train models using the prepared datasets.
-- **Model validation**: Assess the performance of trained models (validations, benchmarks, etc.).
+**1. Build a dataset** from the vulnerability sources and push it to the Hub:
 
-### CLI commands
+```bash
+vulntrain-dataset-generation --sources cvelistv5,github,csaf_redhat,pysec \
+  --repo-id CIRCL/vulnerability-scores
+```
 
-| Command | Purpose |
-|---------|---------|
-| `vulntrain-dataset-generation` | Generate datasets from vulnerability sources |
-| `vulntrain-train-severity-classification` | Train severity classifier (RoBERTa/DistilBERT) |
-| `vulntrain-train-severity-cnvd-classification` | Train severity classifier for CNVD data |
-| `vulntrain-train-description-generation` | Train GPT-2 vulnerability description generator |
-| `vulntrain-train-cwe-classification` | Train CWE classifier from patches |
-| `vulntrain-validate-severity-classification` | Validate severity model |
-| `vulntrain-validate-text-generation` | Validate text generation model |
+**2. Train a model** on that dataset (trainers push to the Hub by default; use
+`--no-push` for a local run):
 
+```bash
+vulntrain-train-severity-classification --base-model roberta-base \
+  --dataset-id CIRCL/vulnerability-scores \
+  --repo-id CIRCL/vulnerability-severity-classification-roberta-base
+```
+
+**3. Validate** the trained model:
+
+```bash
+vulntrain-validate-severity-classification
+```
+
+### Available tasks
+
+| Task | Train with | Published model |
+|------|------------|-----------------|
+| Severity classification | `vulntrain-train-severity-classification` | [`…severity-classification-roberta-base`](https://huggingface.co/CIRCL/vulnerability-severity-classification-roberta-base) |
+| Severity classification (Chinese, CNVD) | `vulntrain-train-severity-cnvd-classification` | [`…severity-classification-chinese-macbert-base`](https://huggingface.co/CIRCL/vulnerability-severity-classification-chinese-macbert-base) |
+| CWE classification from patches | `vulntrain-train-cwe-classification` | [`…cwe-classification-modernbert-base`](https://huggingface.co/CIRCL/vulnerability-cwe-classification-modernbert-base) |
+| CVE → ATT&CK techniques | `vulntrain-train-attack-classification` | [`…attack-technique-classification-roberta-base`](https://huggingface.co/CIRCL/vulnerability-attack-technique-classification-roberta-base) |
+| CVE → ATT&CK techniques (bi-encoder) | `vulntrain-train-attack-biencoder` | [`…attack-technique-biencoder`](https://huggingface.co/CIRCL/vulnerability-attack-technique-biencoder) |
+| Description generation | `vulntrain-train-description-generation` | `…description-generation-gpt2*` |
+
+Every command accepts `--help`. The exact command lines used to regenerate each
+published artifact are in the
+[runbook](https://vulnerability-lookup.github.io/VulnTrain/publishing.html).
 
 
 ## How to cite

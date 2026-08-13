@@ -62,6 +62,23 @@ numbers and dataset revision stay accurate.
 
 ## Datasets
 
+`vulntrain-dataset-generation` takes the advisory sources to read as a
+comma-separated `--sources` list. The supported values are:
+
+| `--sources` value | Language | Description |
+|--------|----------|-------------|
+| `cvelistv5` | English | CVE Program (enriched with vulnrichment and Fraunhofer FKIE) |
+| `github` | English | GitHub Security Advisories |
+| `pysec` | English | PySec advisories |
+| `csaf_redhat` | English | CSAF Red Hat |
+| `csaf_cisco` | English | CSAF Cisco |
+| `csaf_cisa` | English | CSAF CISA |
+| `cnvd` | Chinese | China National Vulnerability Database |
+| `fstec` | Russian | Russian Federal Service for Technical and Export Control (BDU) |
+
+Sources of different languages are kept in separate datasets, which is why
+`cnvd` and `fstec` are each generated on their own below.
+
 ### Vulnerability severity scores
 
 Example: Generate [CIRCL/vulnerability-scores](https://huggingface.co/datasets/CIRCL/vulnerability-scores) dataset

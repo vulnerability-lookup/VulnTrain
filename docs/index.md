@@ -21,25 +21,29 @@ hpc
 :depth: 3
 ``` -->
 
-## Presentation
+## What VulnTrain does
 
-VulnTrain provides a set of tools to generate diverse AI-ready datasets and train models using comprehensive vulnerability data from [Vulnerability-Lookup](https://vulnerability.circl.lu).
-It leverages over one million JSON records from multiple advisory sources to build severity classifiers, description generators, and CWE classifiers.
+VulnTrain turns the vulnerability data collected by
+[Vulnerability-Lookup](https://vulnerability.circl.lu) — over one million
+advisory records — into AI-ready datasets and trained models. It answers
+questions such as: how severe is this vulnerability given only its
+description, which CWE does this patch fix, and which MITRE ATT&CK
+techniques does this CVE enable.
 
-Models and datasets are published to Hugging Face Hub under the [CIRCL](https://huggingface.co/CIRCL) organization.
+Everything it produces is published on the Hugging Face Hub under the
+[CIRCL](https://huggingface.co/CIRCL) organization.
 
-### Supported sources
+Work always follows the same three stages, each with its own family of
+commands:
 
-| Source | Language | Description |
-|--------|----------|-------------|
-| `cvelistv5` | English | CVE Program (enriched with vulnrichment and Fraunhofer FKIE) |
-| `github` | English | GitHub Security Advisories |
-| `pysec` | English | PySec advisories |
-| `csaf_redhat` | English | CSAF Red Hat |
-| `csaf_cisco` | English | CSAF Cisco |
-| `csaf_cisa` | English | CSAF CISA |
-| `cnvd` | Chinese | China National Vulnerability Database |
-| `fstec` | Russian | Russian Federal Service for Technical and Export Control (BDU) |
+1. **Dataset generation** — read the raw advisory records and build a
+   dataset (`vulntrain-dataset-*`).
+2. **Model training** — fine-tune a base model on that dataset
+   (`vulntrain-train-*`).
+3. **Validation** — evaluate and compare the trained models
+   (`vulntrain-validate-*`, `vulntrain-infer-*`).
+
+Every command accepts `--help`.
 
 ## Installation
 
@@ -49,34 +53,26 @@ cd VulnTrain/
 poetry install
 ```
 
-Three types of commands are available:
-
-- **Dataset generation**: Create and prepare datasets from vulnerability sources.
-- **Model training**: Train models using the prepared datasets.
-- **Model validation**: Evaluate and compare trained models.
-
-## Configuration
-
-Copy `vulntrain/config/conf_sample.py` to `vulntrain/config/conf.py` and fill in the Valkey connection details and tokens. Set the `VulnTrain_CONFIG` environment variable to point to your config file.
-
-For AMD ROCm GPU:
+For an AMD ROCm GPU, install the matching PyTorch build:
 
 ```bash
 pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/rocm6.4/
 ```
 
-## Workflows
+## Configuration
 
-The full pipeline — regenerating each published dataset, retraining each
-published model, and validating the result — is documented in the
-dedicated runbook: [Regenerating the published datasets and
-models](publishing.md). It includes a per-artifact summary table (which
-command updates which Hub repository, and whether its card is pushed
-automatically from a template in `vulntrain/cards/` or maintained by
-hand).
+Copy `vulntrain/config/conf_sample.py` to `vulntrain/config/conf.py` and fill in the Valkey connection details and tokens. Set the `VulnTrain_CONFIG` environment variable to point to your config file.
 
-Task-specific background lives in the supplementary pages:
+Most dataset generators read the raw records straight from the Valkey
+database of Vulnerability-Lookup, so it must be running. Training and
+validation only need the datasets on the Hub.
 
+## Where to go next
+
+- **[Regenerating the published datasets and models](publishing.md)** —
+  the runbook, and the best place to start: the exact command line behind
+  every dataset and model on the Hub, plus which cards are pushed
+  automatically and which are maintained by hand.
 - [CVE to ATT&CK techniques](attack-techniques-dataset.md) — dataset
   methodology, model evaluation, and the experiment history (metadata
   ablation, derivation-chain rejection, label semantics, bucket-aware
