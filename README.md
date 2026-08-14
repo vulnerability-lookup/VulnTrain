@@ -118,7 +118,6 @@ Bonhomme, C., & Dulaunoy, A. (2026). Mapping CVEs to MITRE ATT&CK Techniques: A 
 }
 ```
 
-
 ## License
 
 [VulnTrain](https://github.com/vulnerability-lookup/VulnTrain) is licensed under
@@ -129,3 +128,17 @@ Copyright (c) 2025-2026 Computer Incident Response Center Luxembourg (CIRCL)
 Copyright (C) 2025-2026 Cédric Bonhomme - https://github.com/cedricbonhomme
 Copyright (C) 2025 Léa Ulusan - https://github.com/3LS3-1F
 ~~~
+
+## Funding
+
+[AIPITCH](https://www.linkedin.com/company/aipitch)
+(AI-Powered Innovative Toolkit for Cybersecurity Hubs) is a co-funded EU project
+supported by the European Cybersecurity Competence Centre (ECCC) under the
+DIGITAL-ECCC-2024-DEPLOY-CYBER-06-ENABLINGTECH program and
+[CIRCL](https://www.circl.lu).
+
+The project brings together an international consortium to develop AI-based tools
+that enhance the capabilities of operational cybersecurity teams.
+These tools are designed to support critical services, with a focus on national
+security teams, while also being applicable to internal security teams in
+companies and institutions.
