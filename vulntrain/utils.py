@@ -1,9 +1,13 @@
 import json
 import re
+from typing import TYPE_CHECKING
 
 import cvss
 from markdown_it import MarkdownIt
 from nltk.tokenize import sent_tokenize
+
+if TYPE_CHECKING:
+    from transformers import PreTrainedTokenizerBase
 
 
 def sentences(text, num_sentences=5) -> str:
@@ -205,6 +209,34 @@ def extract_cpe_csaf(data):
 
     # Print unique CPEs
     return sorted(set(cpe_list))
+
+
+def clamp_tokenizer_max_length(
+    tokenizer: "PreTrainedTokenizerBase", base_model: str
+) -> None:
+    """Ensure the tokenizer carries a real ``model_max_length``.
+
+    Some base models (e.g. ``hfl/chinese-macbert-base``) ship a
+    ``tokenizer_config.json`` without ``model_max_length``. Transformers then
+    substitutes a very large sentinel value, so ``truncation=True`` without an
+    explicit ``max_length`` truncates nothing, and the broken config is pushed
+    to the Hub along with our fine-tuned models — crashing consumers on inputs
+    longer than the position-embedding table.
+
+    Clamp the tokenizer to the base model's position-embedding capacity so the
+    pushed ``tokenizer_config.json`` always carries a usable limit.
+    """
+    from transformers import AutoConfig
+
+    config = AutoConfig.from_pretrained(base_model)
+    max_positions = getattr(config, "max_position_embeddings", None)
+    if max_positions is None:
+        return
+    # RoBERTa-style models reserve two positions for the padding offset.
+    if getattr(config, "model_type", "") in ("roberta", "xlm-roberta"):
+        max_positions -= 2
+    if tokenizer.model_max_length > max_positions:
+        tokenizer.model_max_length = max_positions
 
 
 def push_emissions_report(model_save_dir: str, repo_id: str) -> bool:

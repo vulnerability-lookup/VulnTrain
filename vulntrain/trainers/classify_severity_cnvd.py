@@ -19,7 +19,7 @@ from transformers import (
     TrainingArguments,
 )
 
-from vulntrain.utils import push_emissions_report
+from vulntrain.utils import clamp_tokenizer_max_length, push_emissions_report
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
@@ -245,6 +245,7 @@ def train(
         logger.info("Class weights: disabled (uniform loss)")
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
+    clamp_tokenizer_max_length(tokenizer, base_model)
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
     def tokenize_function(examples):

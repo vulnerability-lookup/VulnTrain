@@ -14,7 +14,7 @@ from transformers import (
     TrainingArguments,
 )
 
-from vulntrain.utils import push_emissions_report
+from vulntrain.utils import clamp_tokenizer_max_length, push_emissions_report
 
 """
 Create a text generation model for descriptions of vulnerabilities.
@@ -54,6 +54,7 @@ def train(
         print("Using CPU.")
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
+    clamp_tokenizer_max_length(tokenizer, base_model)
 
     if "distilbert" in base_model:
         model = AutoModelForMaskedLM.from_pretrained(base_model)

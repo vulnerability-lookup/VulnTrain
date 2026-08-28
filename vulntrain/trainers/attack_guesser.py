@@ -46,7 +46,7 @@ from vulntrain.attack_metadata import (
     METADATA_SIGNALS,
     build_input_text,
 )
-from vulntrain.utils import push_emissions_report
+from vulntrain.utils import clamp_tokenizer_max_length, push_emissions_report
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -446,6 +446,7 @@ def train(
         logger.info("BCE pos_weight: disabled (uniform loss)")
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
+    clamp_tokenizer_max_length(tokenizer, base_model)
 
     if max_length is None:
         max_length = min(tokenizer.model_max_length, 8192)

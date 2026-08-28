@@ -16,7 +16,7 @@ from transformers import (
     TrainingArguments,
 )
 
-from vulntrain.utils import push_emissions_report
+from vulntrain.utils import clamp_tokenizer_max_length, push_emissions_report
 
 """
 Automatically classify new vulnerabilities based on their descriptions,
@@ -163,6 +163,7 @@ def train(
 
     # Tokenization with labels
     tokenizer = AutoTokenizer.from_pretrained(base_model)
+    clamp_tokenizer_max_length(tokenizer, base_model)
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
     def tokenize_function(elem):

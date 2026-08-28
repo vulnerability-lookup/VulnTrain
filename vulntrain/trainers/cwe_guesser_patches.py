@@ -21,7 +21,7 @@ from transformers import (
     TrainingArguments,
 )
 
-from vulntrain.utils import push_emissions_report
+from vulntrain.utils import clamp_tokenizer_max_length, push_emissions_report
 
 accuracy = evaluate.load("accuracy")
 f1 = evaluate.load("f1", config_name="macro")
@@ -179,6 +179,7 @@ def train(
         logger.info("Class weights: disabled (uniform loss)")
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
+    clamp_tokenizer_max_length(tokenizer, base_model)
 
     if max_length is None:
         max_length = min(tokenizer.model_max_length, 8192)
