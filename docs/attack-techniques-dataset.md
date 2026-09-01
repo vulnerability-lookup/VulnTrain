@@ -917,7 +917,8 @@ fine-tuning specializes the embedding space toward the trained
 technique texts and away from unseen ones. Nothing evaluated is
 operationally usable below the floor (the best, generic MiniLM, gets
 0.24 recall@5 over 222 candidates) — the tail below the vocabulary
-floor is data-bound, and only more curated examples reach it.
+floor is data-bound: nothing measured here reaches it short of more
+curated examples.
 
 A seed-42 bi-encoder is published as
 [`CIRCL/vulnerability-attack-technique-biencoder`](https://huggingface.co/CIRCL/vulnerability-attack-technique-biencoder)
