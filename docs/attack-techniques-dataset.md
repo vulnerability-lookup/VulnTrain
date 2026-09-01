@@ -56,7 +56,7 @@ session):
   Prefer it when rare-technique coverage matters more than top-5
   sharpness. Caveat: on techniques absent from training it ranks
   *worse* than an off-the-shelf embedder (recall@5 0.12 vs 0.24) —
-  below the vocabulary floor, only curated examples help.
+  below the vocabulary floor, nothing measured replaces curated examples.
 
 ## Workflow at a glance
 
