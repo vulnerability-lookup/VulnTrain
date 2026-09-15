@@ -161,7 +161,13 @@ flowchart LR
 - `POST /index/attack-biencoder` with `{"items": [{"id": "CVE-…", "text": "…"}, …]}`
   embeds each text (vulnerability truncation length) and upserts the
   vector under its ID. Called once per record at ingest and by the
-  backfill; re-called when a description changes.
+  backfill; re-called when a description changes. It is the only write
+  into shared state and is authenticated: the caller sends
+  `Authorization: Bearer <token>` matching the gateway's
+  `ML_GATEWAY_INDEX_TOKEN`; while that variable is unset the endpoint
+  refuses every call (503), a wrong token gets 401, and growth past
+  `ML_GATEWAY_INDEX_MAX_ITEMS` distinct IDs gets 507. The read endpoints
+  need no token, so the gateway must be bound to a private interface.
 - `GET /retrieve/attack-biencoder/technique/<technique_id>?top_k=…`
   ranks the indexed vulnerabilities for one technique by
   `sigmoid(logit_scale · cos + logit_bias)`. Techniques come from the
@@ -186,7 +192,9 @@ flowchart LR
 **Vulnerability-Lookup** stays a client:
 
 - At ingest, send the primary description (the same field the ATT&CK
-  suggestion already sends) to the index endpoint.
+  suggestion already sends) to the index endpoint, with the shared
+  token (`ML_GATEWAY_TOKEN` next to `ML_GATEWAY` in the platform's
+  config). A 401 is an outage, not something to retry in a loop.
 - Two proxy endpoints in the style of the existing
   `/api/vlai/attack-techniques` (timeouts, key validation, 502/503
   mapping), and two UI blocks: "vulnerabilities for this technique" on a
