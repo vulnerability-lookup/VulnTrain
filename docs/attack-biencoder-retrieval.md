@@ -118,38 +118,55 @@ the trained vocabulary score noticeably worse (label-holdout recall@5
 
 ## Integration contract
 
-A split that keeps the model server stateless:
+Vulnerability-Lookup deliberately carries no ML dependency: it calls
+ML-Gateway over HTTP and renders the answer. Retrieval keeps that rule by
+putting the vectors *and* the search in the gateway; the store is a
+derived cache that any backfill run can rebuild.
 
-**ML-Gateway** loads the encoder once and exposes embeddings. One endpoint
-is enough:
+**ML-Gateway** owns the model, the vectors and the search:
 
-- `POST /embed/attack-biencoder` with `{"texts": [...], "kind": "vulnerability" | "technique"}`
-  → `{"embeddings": [[768 floats], ...], "model": ..., "model_revision": ...}`.
-  `kind` selects the truncation length. Batches of a few hundred texts are
-  fine on CPU; the caller decides the batch size.
-- Optionally `GET /embed/attack-biencoder/techniques` returning the
-  precomputed technique vectors, IDs, names, and the scale/bias pair, so
-  the store never has to load the model.
+- `POST /index/attack-biencoder` with `{"items": [{"id": "CVE-…", "text": "…"}, …]}`
+  embeds each text (vulnerability truncation length) and upserts the
+  vector under its ID. Called once per record at ingest and by the
+  backfill; re-called when a description changes.
+- `GET /retrieve/attack-biencoder/technique/<technique_id>?top_k=…`
+  ranks the indexed vulnerabilities for one technique by
+  `sigmoid(logit_scale · cos + logit_bias)`. Techniques come from the
+  shipped `technique_texts.json`; techniques outside the trained
+  vocabulary need a text built from the STIX bundle (previous section)
+  and should be flagged as out-of-vocabulary in the response.
+- `POST /retrieve/attack-biencoder/related` with `{"id": "…"}` or
+  `{"text": "…"}` returns the top-k nearest indexed vulnerabilities by
+  plain cosine.
+- Every response carries `model` and `model_revision`, like the
+  classification endpoint. Vectors are only comparable within one
+  revision: store the revision with the index and rebuild the index when
+  the served model changes.
+- Storage: one float16 vector per ID (1.5 KB; 500 k records ≈ 750 MB,
+  1 M ≈ 1.5 GB) plus the ID order, on a persistent volume. The search is
+  brute force over the matrix in memory (`query @ matrix.T`, top-k; tens
+  of milliseconds at 500 k × 768 with NumPy). With several gunicorn
+  workers the matrix must be shared — a memory-mapped file, or a small
+  Valkey/kvrocks service next to the gateway — and appends must be
+  visible to all workers. No vector database is needed at this scale.
 
-**Vulnerability-Lookup** owns the vectors and the search:
+**Vulnerability-Lookup** stays a client:
 
-- One vector per vulnerability, keyed by ID, stored as float16 (1.5 KB
-  each; 500 k records ≈ 750 MB, 1 M ≈ 1.5 GB). Record the model revision
-  next to the vectors: a model update invalidates the whole store.
-- Compute the vector at ingest through the gateway; recompute when the
-  description changes.
-- Search is brute force: load the matrix in memory, `query @ matrix.T`,
-  top-k. At 500 k × 768 in float16 this is tens of milliseconds with
-  NumPy and needs no vector database. Add an index only if the corpus or
-  the query rate outgrows that.
-- Embed the same text field the ATT&CK suggestion already sends to the
-  gateway (the primary description), so both features see the same input.
+- At ingest, send the primary description (the same field the ATT&CK
+  suggestion already sends) to the index endpoint.
+- Two proxy endpoints in the style of the existing
+  `/api/vlai/attack-techniques` (timeouts, key validation, 502/503
+  mapping), and two UI blocks: "vulnerabilities for this technique" on a
+  technique page and "related by attack behaviour" on the vulnerability
+  page, both labelled as similarity search rather than classification.
+- No vector, matrix or model revision is stored on this side.
 
-**Backfill.** The initial pass over the existing corpus can go through the
-gateway's batch endpoint (roberta-base on a multi-core CPU handles roughly
+**Backfill.** The initial pass over the existing corpus runs on the
+gateway side, reading the Vulnerability-Lookup NDJSON dumps and feeding
+the index in batches (roberta-base on a multi-core CPU handles roughly
 30–80 descriptions per second batched, so 500 k descriptions is a few
-hours) or run offline on a GPU with the snippet above. If offline, write
+hours; a GPU host does it in minutes with the snippet above). Vectors
+computed elsewhere are imported into the same store as one `.npz` with
 `ids` (array of strings), `embeddings` (float16, N × 768) and
-`model_revision` into one `.npz`, copy it to the Vulnerability-Lookup host
-and have a loader CLI write it into the store. Either way the gateway
-never holds the vectors.
+`model_revision`. The gateway rejects an import whose revision differs
+from the served model.
