@@ -123,6 +123,39 @@ ML-Gateway over HTTP and renders the answer. Retrieval keeps that rule by
 putting the vectors *and* the search in the gateway; the store is a
 derived cache that any backfill run can rebuild.
 
+```mermaid
+flowchart LR
+    classDef data fill:#e8f0fe,stroke:#4285f4,color:#000;
+    classDef tool fill:#fff4e5,stroke:#f9a825,color:#000;
+    classDef out fill:#e6f4ea,stroke:#188038,color:#000;
+
+    subgraph VL["Vulnerability-Lookup"]
+        direction TB
+        ingest["Feeder ingest<br/>new or changed description"]:::data
+        techpage["Technique page<br/>«vulnerabilities for this technique»"]:::data
+        vulnpage["Vulnerability page<br/>«related by attack behaviour»"]:::data
+    end
+
+    subgraph GW["ML-Gateway"]
+        direction TB
+        idx["POST /index/attack-biencoder"]:::tool
+        tech["GET /retrieve/attack-biencoder/technique/{id}"]:::tool
+        rel["POST /retrieve/attack-biencoder/related"]:::tool
+        enc["Bi-encoder<br/>CIRCL/vulnerability-attack-technique-biencoder<br/>mean-pool · L2-normalize"]:::tool
+        store[("Vector store<br/>float16 matrix, memory-mapped,<br/>shared by all workers,<br/>pinned to one model revision")]:::out
+    end
+
+    ingest -- "{id, text}" --> idx
+    techpage -- "T1190" --> tech
+    vulnpage -- "{id} or {text}" --> rel
+    idx -- embed --> enc
+    enc -- upsert vector --> store
+    tech -- "sigmoid(scale·cos + bias)" --> store
+    rel -- "plain cosine" --> store
+    tech -. "ranked ids + scores" .-> techpage
+    rel -. "ranked ids + scores" .-> vulnpage
+```
+
 **ML-Gateway** owns the model, the vectors and the search:
 
 - `POST /index/attack-biencoder` with `{"items": [{"id": "CVE-…", "text": "…"}, …]}`
@@ -162,10 +195,41 @@ derived cache that any backfill run can rebuild.
 - No vector, matrix or model revision is stored on this side.
 
 **Backfill.** The initial pass over the existing corpus runs on the
-gateway side, reading the Vulnerability-Lookup NDJSON dumps and feeding
-the index in batches (roberta-base on a multi-core CPU handles roughly
+gateway side (`ml-gw-cli backfill-index`) or, when that host is too slow,
+on a GPU host that writes the archive below (`ml-gw-cli embed-dumps`) for
+`ml-gw-cli import-index` to load:
+
+```mermaid
+flowchart LR
+    classDef data fill:#e8f0fe,stroke:#4285f4,color:#000;
+    classDef tool fill:#fff4e5,stroke:#f9a825,color:#000;
+    classDef out fill:#e6f4ea,stroke:#188038,color:#000;
+
+    dumps["Vulnerability-Lookup dumps<br/>one .ndjson per feed<br/>(cvelistv5, github, pysec, …)"]:::data
+
+    subgraph gpu["GPU host (optional)"]
+        direction LR
+        embed["ml-gw-cli embed-dumps --device cuda<br/>same extraction, no index"]:::tool
+        npz["vectors.npz<br/>ids · float16 embeddings<br/>model · model_revision"]:::data
+    end
+
+    subgraph gateway["Gateway host"]
+        direction TB
+        backfill["ml-gw-cli backfill-index<br/>extract → embed on CPU → upsert"]:::tool
+        imp["ml-gw-cli import-index<br/>refuses another model revision"]:::tool
+        server["Running server<br/>POST /index/attack-biencoder at ingest"]:::tool
+        store[("Vector store<br/>$ML_GATEWAY_INDEX_DIR<br/>appends visible to every worker")]:::out
+    end
+
+    dumps -- "path A: one-time seed" --> backfill --> store
+    dumps -- "path B: one-time seed" --> embed --> npz -- copy --> imp --> store
+    server -- "keeps it current" --> store
+```
+
+On the gateway side the backfill reads the Vulnerability-Lookup NDJSON
+dumps and feeds the index in batches (roberta-base on a multi-core CPU handles roughly
 30–80 descriptions per second batched, so 500 k descriptions is a few
-hours; a GPU host does it in minutes with the snippet above). Vectors
+hours; a GPU host does it in minutes with `embed-dumps` or the snippet above). Vectors
 computed elsewhere are imported into the same store as one `.npz` with
 `ids` (array of strings), `embeddings` (float16, N × 768) and
 `model_revision`. The gateway rejects an import whose revision differs
