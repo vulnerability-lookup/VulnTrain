@@ -12,6 +12,7 @@ publishing
 :caption: Supplementary pages
 
 attack-techniques-dataset
+attack-biencoder-retrieval
 cnvd-severity-improvements
 cwe-classification-improvements
 hpc
