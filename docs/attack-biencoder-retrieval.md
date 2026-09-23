@@ -183,11 +183,23 @@ flowchart LR
   the served model changes.
 - Storage: one float16 vector per ID (1.5 KB; 500 k records ≈ 750 MB,
   1 M ≈ 1.5 GB) plus the ID order, on a persistent volume. The search is
-  brute force over the matrix in memory (`query @ matrix.T`, top-k; tens
-  of milliseconds at 500 k × 768 with NumPy). With several gunicorn
-  workers the matrix must be shared — a memory-mapped file, or a small
+  an exact brute-force scan (`query @ matrix.T`, then a partial top-k
+  selection): 768·N multiply-accumulates over a sequential read of the
+  payload, linear in N and bound by memory bandwidth once the matrix is
+  resident. No latency figure is claimed until a hardware benchmark
+  reports warm and cold p50/p95/p99 latency, throughput under
+  concurrency and RAM use at the real corpus size; the exact scan stays
+  the right choice while those meet the deployment target, and an
+  approximate index or quantization is only worth adopting with
+  recall@k measured against the float32 exact baseline. Two latencies
+  must be kept apart: a query by stored ID or technique costs only the
+  scan, a free-text query first runs the 512-token encoder, which also
+  serves the index endpoint — under indexing load, free-text searches
+  slowed past the platform proxy's ten-second limit while ID searches
+  answered at once (observed 2026-09-17). With several gunicorn workers
+  the matrix must be shared — a memory-mapped file, or a small
   Valkey/kvrocks service next to the gateway — and appends must be
-  visible to all workers. No vector database is needed at this scale.
+  visible to all workers.
 
 **Vulnerability-Lookup** stays a client:
 
