@@ -134,11 +134,13 @@ def prepare_evaluation_data(
     list[str],
     list[bool],
     list[dict[str, set[str]]],
+    list[str],
 ]:
     """Return (texts, ids, gold sets, derived candidate sets, vocabulary,
     label-source groups, gold-CWE presence flags, per-row CTID bucket gold
     --- named buckets only, collapsed and vocabulary-restricted; used by
-    the bucket-multitask evaluation).
+    the bucket-multitask evaluation --- and the raw ``description`` column,
+    for per-row exports that must measure the description alone).
 
     Texts are built with the same ``build_input_text`` as the trainer,
     appending the given verbalized metadata signals (none by default).
@@ -177,6 +179,7 @@ def prepare_evaluation_data(
     source_groups: list[str] = []
     cwe_flags: list[bool] = []
     bucket_sets: list[dict[str, set[str]]] = []
+    descriptions: list[str] = []
     skipped = 0
     for example in examples:
         gold = {
@@ -196,6 +199,7 @@ def prepare_evaluation_data(
         )
         source_groups.append("+".join(sorted(example.get("label_sources") or [])))
         cwe_flags.append(bool(example.get("cwes")))
+        descriptions.append(str(example.get("description") or ""))
         bucket_sets.append(
             {
                 column: {
@@ -220,7 +224,47 @@ def prepare_evaluation_data(
         source_groups,
         cwe_flags,
         bucket_sets,
+        descriptions,
     )
+
+
+def dump_predictions(
+    path: str,
+    vuln_ids: list[str],
+    descriptions: list[str],
+    source_groups: list[str],
+    gold_sets: list[set[str]],
+    scores: np.ndarray,
+    vocabulary: list[str],
+) -> None:
+    """Write one JSON line per evaluated row: ``id``, the raw
+    ``description``, ``label_sources`` (joined as in the stratified
+    report), the in-vocabulary ``gold`` techniques, the full ``ranked``
+    vocabulary in descending score order and the matching ``scores``.
+    This is the input of the paper repository's
+    ``description_length_analysis.py`` audit; it captures the exact
+    predictions behind the printed metrics, so the audit adds no second
+    inference path."""
+    ranked_indices = np.argsort(scores, axis=1)[:, ::-1]
+    with open(path, "w", encoding="utf-8") as f:
+        for row, (vuln_id, description, source, gold) in enumerate(
+            zip(vuln_ids, descriptions, source_groups, gold_sets)
+        ):
+            order = ranked_indices[row]
+            f.write(
+                json.dumps(
+                    {
+                        "id": vuln_id,
+                        "description": description,
+                        "label_sources": source,
+                        "gold": sorted(gold),
+                        "ranked": [vocabulary[index] for index in order],
+                        "scores": [float(scores[row, index]) for index in order],
+                    }
+                )
+                + "\n"
+            )
+    logger.info(f"Wrote {len(vuln_ids)} per-row predictions to {path}")
 
 
 def candidate_prior_diagnostics(
@@ -293,7 +337,7 @@ def evaluate_similarity(args: argparse.Namespace) -> dict[str, dict[str, float]]
             "similarity", scores, candidates, gold_sets, head_vocabulary
         )
 
-    texts, _, gold_sets, _, vocabulary, _, _, _ = prepare_evaluation_data(
+    texts, _, gold_sets, _, vocabulary, _, _, _, _ = prepare_evaluation_data(
         args.dataset_id, args.split, args.min_examples, vocabulary=None
     )
 
@@ -526,14 +570,26 @@ def evaluate_biencoder(args: argparse.Namespace) -> dict[str, dict[str, float]]:
             "biencoder", scores, candidates, gold_sets, vocabulary, holdout
         )
 
-    texts, _, gold_sets, _, _, source_groups, cwe_flags, _ = prepare_evaluation_data(
-        args.dataset_id,
-        args.split,
-        args.min_examples,
-        vocabulary=vocabulary,
-        metadata_signals=metadata_signals,
+    texts, vuln_ids, gold_sets, _, _, source_groups, cwe_flags, _, descriptions = (
+        prepare_evaluation_data(
+            args.dataset_id,
+            args.split,
+            args.min_examples,
+            vocabulary=vocabulary,
+            metadata_signals=metadata_signals,
+        )
     )
     logits = score(texts, [technique_texts[label] for label in vocabulary])
+    if args.dump_predictions:
+        dump_predictions(
+            args.dump_predictions,
+            vuln_ids,
+            descriptions,
+            source_groups,
+            gold_sets,
+            logits,
+            vocabulary,
+        )
     metrics = rank_and_score(logits, vocabulary, gold_sets)
     metrics.update(threshold_f1(logits, vocabulary, gold_sets))
     results = {"biencoder": metrics}
@@ -568,7 +624,17 @@ def evaluate_classifier(args: argparse.Namespace) -> dict[str, dict[str, float]]
     if metadata_signals:
         logger.info(f"Model was trained with metadata inputs: {metadata_signals}")
 
-    texts, _, gold_sets, derived_sets, _, source_groups, cwe_flags, bucket_sets = (
+    (
+        texts,
+        vuln_ids,
+        gold_sets,
+        derived_sets,
+        _,
+        source_groups,
+        cwe_flags,
+        bucket_sets,
+        descriptions,
+    ) = (
         prepare_evaluation_data(
             args.dataset_id,
             args.split,
@@ -618,6 +684,16 @@ def evaluate_classifier(args: argparse.Namespace) -> dict[str, dict[str, float]]
             bucket_metrics["n_examples"] = float(len(rows))
             bucket_results[f"classifier[bucket:{bucket}]"] = bucket_metrics
 
+    if args.dump_predictions:
+        dump_predictions(
+            args.dump_predictions,
+            vuln_ids,
+            descriptions,
+            source_groups,
+            gold_sets,
+            logits,
+            vocabulary,
+        )
     metrics = rank_and_score(logits, vocabulary, gold_sets)
     metrics.update(threshold_f1(logits, vocabulary, gold_sets))
     results = {"classifier": metrics}
@@ -732,6 +808,15 @@ def main() -> None:
         default="~/.cache/vulntrain",
         help="Directory where the ATT&CK STIX data is cached.",
     )
+    parser.add_argument(
+        "--dump-predictions",
+        dest="dump_predictions",
+        metavar="PATH",
+        help="Write the per-row predictions behind the printed metrics as "
+        "JSON Lines (id, description, label_sources, gold, ranked, scores); "
+        "the input of the paper repository's description-length audit. "
+        "Classifier and biencoder methods with the vocabulary candidates.",
+    )
     args = parser.parse_args()
 
     if args.prior != "none" and args.method != "classifier":
@@ -747,6 +832,13 @@ def main() -> None:
         parser.error("--stratify is not implemented for --candidates full")
     if args.method in ("classifier", "biencoder") and not args.model:
         parser.error(f"--method {args.method} requires --model")
+    if args.dump_predictions and (
+        args.method == "similarity" or args.candidates == "full"
+    ):
+        parser.error(
+            "--dump-predictions requires --method classifier or biencoder "
+            "with the vocabulary candidates"
+        )
 
     if args.method == "classifier":
         results = evaluate_classifier(args)

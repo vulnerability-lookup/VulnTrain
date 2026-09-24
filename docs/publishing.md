@@ -361,8 +361,13 @@ inference-time re-ranking prior (measured harmful — kept for
 reproducibility); `--candidates full` (similarity and biencoder only)
 ranks over *all* active enterprise parent techniques instead of the
 training vocabulary, reporting in-vocabulary and below-floor gold
-separately. Metadata-trained and bucket-multitask checkpoints are
-detected automatically from the model config — no extra flags needed.
+separately; `--dump-predictions PATH` (classifier and biencoder, vocabulary
+candidates) writes the per-row predictions behind the printed metrics as
+JSON Lines — `id`, raw `description`, `label_sources`, in-vocabulary `gold`,
+the full `ranked` vocabulary and its `scores` — which is the input of the
+paper repository's description-length audit. Metadata-trained and
+bucket-multitask checkpoints are detected automatically from the model
+config — no extra flags needed.
 
 Inspect a single CVE (or free-text description) against any trained
 checkpoint, with gold techniques shown when the CVE is in the dataset:
