@@ -167,7 +167,9 @@ flowchart LR
   `ML_GATEWAY_INDEX_TOKEN`; while that variable is unset the endpoint
   refuses every call (503), a wrong token gets 401, and growth past
   `ML_GATEWAY_INDEX_MAX_ITEMS` distinct IDs gets 507. The read endpoints
-  need no token, so the gateway must be bound to a private interface.
+  need no token, so the gateway must be reachable only from the platform
+  (bound to a private interface, or behind a proxy that only the platform
+  reaches).
 - `GET /retrieve/attack-biencoder/technique/<technique_id>?top_k=…`
   ranks the indexed vulnerabilities for one technique by
   `sigmoid(logit_scale · cos + logit_bias)`. Techniques come from the
