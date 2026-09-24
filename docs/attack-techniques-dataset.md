@@ -373,6 +373,16 @@ is what label expansion targets.
 > protocol (seed 42, `--val-split 0.1`, 53-technique vocabulary); its
 > expected metrics are the corrected-protocol numbers of record below.
 
+> **Note (2026-09-24).** "53-technique vocabulary" is the seed-42 figure.
+> The five-example cutoff is applied to the gold train split *after* the
+> validation carve-out, and the carve-out is split with the run seed, so
+> seeds 43–46 keep 54–56 techniques (one to three sit exactly at the
+> cutoff) and evaluate 118 or, for seed 45, 119 test rows. Within a seed
+> every arm shares the carve-out and hence the vocabulary, so all paired
+> deltas in the tables below are like for like; the vocabulary is frozen
+> across arms, not across seeds. Verified in the archived trainer logs of
+> every grid (E3 ablation, E4 head-to-head, both arms).
+
 ## LLM-assisted label expansion (Phase 2)
 
 `vulntrain/datasets/attack_llm_labeler.py`
