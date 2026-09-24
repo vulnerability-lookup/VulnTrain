@@ -514,7 +514,7 @@ def open_candidate_texts(
 
 
 def evaluate_biencoder(args: argparse.Namespace) -> dict[str, dict[str, float]]:
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer or args.model)
     encoder = AutoModel.from_pretrained(args.model)
     encoder.eval()
 
@@ -603,7 +603,7 @@ def evaluate_biencoder(args: argparse.Namespace) -> dict[str, dict[str, float]]:
 
 
 def evaluate_classifier(args: argparse.Namespace) -> dict[str, dict[str, float]]:
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer or args.model)
     model = AutoModelForSequenceClassification.from_pretrained(args.model)
     model.eval()
 
@@ -807,6 +807,13 @@ def main() -> None:
         "--cache-dir",
         default="~/.cache/vulntrain",
         help="Directory where the ATT&CK STIX data is cached.",
+    )
+    parser.add_argument(
+        "--tokenizer",
+        help="Load the tokenizer from this repo ID or path instead of --model, "
+        "e.g. the base model when a checkpoint directory's tokenizer files "
+        "no longer load under the installed transformers. The trainers save "
+        "the base tokenizer unchanged, so this does not alter the inputs.",
     )
     parser.add_argument(
         "--dump-predictions",
