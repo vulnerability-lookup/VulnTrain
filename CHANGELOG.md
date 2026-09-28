@@ -1,5 +1,79 @@
 # Changelog
 
+## Release 3.3.0 (2026-09-28)
+
+### What's New
+
+#### CVE → MITRE ATT&CK: structured metadata and label semantics
+
+The experiments behind the follow-up paper *Beyond the Description: Structured
+Metadata and Label Semantics for CVE-to-ATT&CK Mapping* (companion to
+arXiv:2607.25572), documented in `docs/attack-techniques-dataset.md`. Every
+trained arm of the paper is an entry-point invocation of this release.
+
+- **Dataset v2 / v2.1** (`vulntrain-dataset-attack-generation`): the gold
+  dataset now carries the structured metadata of every CVE — CVSS vector
+  string (highest version, CNA preferred over ADP), CWE assignments, affected
+  vendor/product pairs, CPE lists joined from CIRCL/vulnerability-scores — as a
+  strictly additive extension (identical rows and splits), plus a
+  `cwes_predicted` column (top-1 parent-level prediction of the CIRCL CWE
+  classifier; refresh tooling in `tools/attack/`). Coverage per label source is
+  documented; `extract_cpe` no longer fails on records without a CNA container.
+- **Verbalized metadata inputs** (`vulntrain-train-attack-classification
+  --metadata`): CVSS (version-neutral phrasing), CWE (gold or predicted),
+  affected products and CVE2CAPEC-derived candidates appended to the input text
+  under constant headers; the enabled signals are recorded in the model config
+  and read back by the validator so train and test inputs cannot diverge.
+- **Label-semantics bi-encoder** (`vulntrain-train-attack-biencoder`): a shared
+  roberta-base encoder scores CVE texts against the official ATT&CK technique
+  texts (mean-pooled, L2-normalized, learnable affine over the cosine), trained
+  under the same protocol as the classification head; checkpoint selection on
+  validation recall@5 after the macro-F1 selection was found to degenerate.
+  Ships `technique_texts.json` and the scoring calibration with the weights.
+  Published as
+  [CIRCL/vulnerability-attack-technique-biencoder](https://huggingface.co/CIRCL/vulnerability-attack-technique-biencoder)
+  (DOI 10.57967/hf/9968). `vulntrain/attack_texts.py` builds the technique
+  texts and tactic mappings from the enterprise STIX bundle.
+- **Label-holdout zero-shot protocol** (`--holdout-techniques`, fold tooling in
+  the paper repository): retrains the bi-encoder with whole techniques withheld
+  to measure transfer below the vocabulary floor.
+- **Bucket-aware training**: CTID role multi-task heads
+  (`--bucket-multitask`) and a tactic-level auxiliary loss (`--tactic-aux`)
+  for the classification head; the auxiliary head is dropped at save time.
+- **Validator** (`vulntrain-validate-attack-classification`): `--method
+  biencoder`; `--candidates full` (open-vocabulary ranking over all active
+  enterprise parent techniques, in-vocabulary and below-floor gold reported
+  separately); `--stratify` (per `label_sources` group, per gold-CWE presence
+  and their intersection); `--prior boost|mask` (CVE2CAPEC-derived candidate
+  re-ranking, measured harmful, kept for reproducibility); `--dump-predictions`
+  (per-row JSON Lines with id, description, label sources, gold, ranked
+  vocabulary and scores, the input of the paper's description-length audit);
+  `--tokenizer` (load the tokenizer from the base model when a checkpoint's
+  tokenizer files no longer load under the installed transformers).
+- Pushed tokenizers carry a real `model_max_length`.
+
+### Documentation
+
+- `docs/attack-techniques-dataset.md`: results of every experiment (metadata
+  ablation, stratified replication, cascade, derived-prior re-ranking,
+  bi-encoder head-to-head, open vocabulary and label holdout, bucket-aware
+  arms), a "Findings at a glance" summary with model-selection guidance, and
+  the protocol precision that the label vocabulary is per seed (53 techniques
+  for seed 42, 54–56 otherwise).
+- `docs/publishing.md`: how the datasets and models are trained, validated and
+  pushed to the Hub, including the ATT&CK dataset and model update procedures.
+- `docs/attack-biencoder-retrieval.md`: the contract for serving the
+  bi-encoder for technique→CVE and CVE→CVE retrieval (scoring function,
+  reference implementation, index and seeding workflow shared with ML-Gateway
+  and Vulnerability-Lookup).
+- Documentation published on GitHub Pages; README and citations updated;
+  funding section for the AIPITCH project.
+
+### Changes
+
+- Updated dependencies.
+
+
 ## Release 3.2.0 (2026-08-06)
 
 ### What's New
