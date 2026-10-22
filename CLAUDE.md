@@ -37,6 +37,7 @@ All commands are installed as entry points via `poetry install`:
 | `vulntrain-dataset-generation` | Generate datasets from vulnerability sources |
 | `vulntrain-train-severity-classification` | Train RoBERTa/DistilBERT severity classifier |
 | `vulntrain-train-severity-cnvd-classification` | Train severity classifier for CNVD data |
+| `vulntrain-train-severity-certfr-classification` | Train severity classifier for CERT-FR (French) data |
 | `vulntrain-train-description-generation` | Train GPT-2 vulnerability description generator |
 | `vulntrain-train-cwe-classification` | Train CWE classifier from patches |
 | `vulntrain-validate-severity-classification` | Validate severity model |

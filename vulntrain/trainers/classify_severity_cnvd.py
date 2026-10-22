@@ -145,16 +145,16 @@ class FocalLossTrainer(Trainer):
         return (loss, outputs) if return_outputs else loss
 
 
-def deduplicate_split(dataset, test_size=0.2, seed=42):
+def deduplicate_split(dataset, test_size=0.2, seed=42, field="description"):
     """Split dataset so that no description text appears in both train and test.
 
-    Deduplicates on the description field: groups entries by their description,
-    then splits the unique groups — ensuring all entries sharing a description
-    land in the same split.
+    Deduplicates on the given text field (description by default): groups
+    entries by their text, then splits the unique groups — ensuring all
+    entries sharing a text land in the same split.
     """
     # Build mapping: unique description -> list of row indices
     desc_to_indices: dict[str, list[int]] = {}
-    for idx, desc in enumerate(dataset["description"]):
+    for idx, desc in enumerate(dataset[field]):
         desc_to_indices.setdefault(desc, []).append(idx)
 
     unique_descs = list(desc_to_indices.keys())

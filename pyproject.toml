@@ -53,6 +53,7 @@ vulntrain-dataset-attack-llm-labeling = "vulntrain.datasets.attack_llm_labeler:m
 vulntrain-train-description-generation = "vulntrain.trainers.generation_description:main"
 vulntrain-train-severity-classification = "vulntrain.trainers.classify_severity:main"
 vulntrain-train-severity-cnvd-classification = "vulntrain.trainers.classify_severity_cnvd:main"
+vulntrain-train-severity-certfr-classification = "vulntrain.trainers.classify_severity_certfr:main"
 vulntrain-train-cwe-classification = "vulntrain.trainers.cwe_guesser_patches:main"
 vulntrain-train-attack-classification = "vulntrain.trainers.attack_guesser:main"
 vulntrain-train-attack-biencoder = "vulntrain.trainers.attack_biencoder:main"

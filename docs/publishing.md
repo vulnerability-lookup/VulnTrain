@@ -38,6 +38,7 @@ HTTP API and Hugging Face access — see its section below.)
 | [`CIRCL/vulnerability-attack-techniques`](https://huggingface.co/datasets/CIRCL/vulnerability-attack-techniques) | `vulntrain-dataset-attack-generation --push`, then `tools/attack/` | by hand |
 | [`…severity-classification-roberta-base`](https://huggingface.co/CIRCL/vulnerability-severity-classification-roberta-base) | `vulntrain-train-severity-classification` | by hand |
 | [`…severity-classification-chinese-macbert-base`](https://huggingface.co/CIRCL/vulnerability-severity-classification-chinese-macbert-base) | `vulntrain-train-severity-cnvd-classification` | **auto** (template) |
+| [`…severity-classification-french-camembertv2-base`](https://huggingface.co/CIRCL/vulnerability-severity-classification-french-camembertv2-base) | `vulntrain-train-severity-certfr-classification` | **auto** (template) |
 | [`…cwe-classification-modernbert-base`](https://huggingface.co/CIRCL/vulnerability-cwe-classification-modernbert-base) | `vulntrain-train-cwe-classification` | by hand |
 | [`…attack-technique-classification-roberta-base`](https://huggingface.co/CIRCL/vulnerability-attack-technique-classification-roberta-base) | `vulntrain-train-attack-classification` | by hand |
 | [`…attack-technique-biencoder`](https://huggingface.co/CIRCL/vulnerability-attack-technique-biencoder) | `vulntrain-train-attack-biencoder` | by hand |
@@ -46,8 +47,9 @@ HTTP API and Hugging Face access — see its section below.)
 **Card policy.** Artifacts marked **auto** get their card pushed by the
 generating command, from the templates in `vulntrain/cards/`
 (`dataset_card_vulnerability_scores.md` is filled with dataset statistics
-at generation time; `dataset_card_cnvd.md`, `dataset_card_certfr.md` and
-`model_card_cnvd_severity.md` are static). For these, **edit the template
+at generation time; `dataset_card_cnvd.md`, `dataset_card_certfr.md`,
+`model_card_cnvd_severity.md` and `model_card_certfr_severity.md` are
+static). For these, **edit the template
 in the repository and commit — never edit the card on the Hub**, or the
 next regeneration silently overwrites your changes (`--no-card` skips the
 card push of `vulntrain-dataset-generation` when you need to). All other
@@ -215,9 +217,9 @@ given with `--repo-id`); pass `--no-push` for a local dry run — the
 convention used by all experiment sweeps. A push uploads the model
 weights, the tokenizer, task-specific extras (e.g. the bi-encoder's
 `technique_texts.json`), and the CodeCarbon emissions report. Model
-cards follow the card policy above: only the CNVD severity trainer
-pushes one (from its template); every other model card is maintained by
-hand.
+cards follow the card policy above: only the CNVD and CERT-FR severity
+trainers push one (from their templates); every other model card is
+maintained by hand.
 
 ### Severity classification
 
@@ -240,6 +242,23 @@ Generate a Russian severity classifier using FSTEC data and [ruRoberta-large](ht
 ```bash
 vulntrain-train-severity-classification --base-model ai-forever/ruRoberta-large --dataset-id CIRCL/Vulnerability-FSTEC --repo-id CIRCL/vulnerability-severity-classification-russian-ruRoberta-large
 ```
+
+Generate a French severity classifier using CERT-FR data and [CamemBERT v2](https://huggingface.co/almanach/camembertv2-base):
+
+```bash
+vulntrain-train-severity-certfr-classification --base-model almanach/camembertv2-base --dataset-id CIRCL/Vulnerability-CERT-FR --repo-id CIRCL/vulnerability-severity-classification-french-camembertv2-base
+```
+
+The model input is the bulletin title, summary and risks, and the label
+is one of four classes (Low, Medium, High, Critical). `--score` selects
+the bulletin score used as label (`cvss_max`, the default, or
+`cvss_mean`), and `--cvss-v2` how bulletins scored only with CVSS v2 are
+handled: `exclude` (default), `v2-thresholds` (CVSS v2 ratings, no
+Critical) or `v3-thresholds`. As in the CNVD trainer, the split is
+deduplicated on the input text and `--class-weights` selects the loss
+(`none`, `sqrt`, `balanced`, `focal`); `--epochs`, `--learning-rate`,
+`--batch-size` and `--max-length` control the schedule, and the best
+checkpoint is selected by macro F1. `--no-push` keeps a run local.
 
 ### CWE classification
 
