@@ -21,7 +21,7 @@ hf auth login
 ```
 
 Then ensure that the Valkey database of Vulnerability-Lookup is running.
-(This applies to the severity, CNVD, FSTEC, and CWE/patch dataset
+(This applies to the severity, CNVD, FSTEC, CERT-FR, and CWE/patch dataset
 generators, which read raw records from Valkey. The ATT&CK techniques
 dataset generator is the exception: it needs only the Vulnerability-Lookup
 HTTP API and Hugging Face access — see its section below.)
@@ -33,6 +33,7 @@ HTTP API and Hugging Face access — see its section below.)
 | [`CIRCL/vulnerability-scores`](https://huggingface.co/datasets/CIRCL/vulnerability-scores) | `vulntrain-dataset-generation --sources cvelistv5,…` | **auto** (template + stats) |
 | [`CIRCL/Vulnerability-CNVD`](https://huggingface.co/datasets/CIRCL/Vulnerability-CNVD) | `vulntrain-dataset-generation --sources cnvd` | **auto** (static template) |
 | [`CIRCL/Vulnerability-FSTEC`](https://huggingface.co/datasets/CIRCL/Vulnerability-FSTEC) | `vulntrain-dataset-generation --sources fstec` | by hand |
+| [`CIRCL/Vulnerability-CERT-FR`](https://huggingface.co/datasets/CIRCL/Vulnerability-CERT-FR) | `vulntrain-dataset-generation --sources certfr_alerte,certfr_avis` | **auto** (static template) |
 | [`CIRCL/vulnerability-cwe-patch`](https://huggingface.co/datasets/CIRCL/vulnerability-cwe-patch) | `python vulntrain/datasets/cwe-guesser-dataset.py` | by hand |
 | [`CIRCL/vulnerability-attack-techniques`](https://huggingface.co/datasets/CIRCL/vulnerability-attack-techniques) | `vulntrain-dataset-attack-generation --push`, then `tools/attack/` | by hand |
 | [`…severity-classification-roberta-base`](https://huggingface.co/CIRCL/vulnerability-severity-classification-roberta-base) | `vulntrain-train-severity-classification` | by hand |
@@ -45,7 +46,7 @@ HTTP API and Hugging Face access — see its section below.)
 **Card policy.** Artifacts marked **auto** get their card pushed by the
 generating command, from the templates in `vulntrain/cards/`
 (`dataset_card_vulnerability_scores.md` is filled with dataset statistics
-at generation time; `dataset_card_cnvd.md` and
+at generation time; `dataset_card_cnvd.md`, `dataset_card_certfr.md` and
 `model_card_cnvd_severity.md` are static). For these, **edit the template
 in the repository and commit — never edit the card on the Hub**, or the
 next regeneration silently overwrites your changes (`--no-card` skips the
@@ -75,9 +76,11 @@ comma-separated `--sources` list. The supported values are:
 | `csaf_cisa` | English | CSAF CISA |
 | `cnvd` | Chinese | China National Vulnerability Database |
 | `fstec` | Russian | Russian Federal Service for Technical and Export Control (BDU) |
+| `certfr_alerte` | French | CERT-FR alerts (Alertes) |
+| `certfr_avis` | French | CERT-FR advisories (Avis) |
 
 Sources of different languages are kept in separate datasets, which is why
-`cnvd` and `fstec` are each generated on their own below.
+`cnvd`, `fstec` and the CERT-FR sources are each generated on their own below.
 
 ### Vulnerability severity scores
 
@@ -107,6 +110,34 @@ vulntrain-dataset-generation --sources fstec --repo-id=CIRCL/Vulnerability-FSTEC
 
 The FSTEC dataset extracts CVSS base scores from vector strings (v2.0, v3.0, v4.0) and includes CVE cross-references when available.
 No static card template exists for FSTEC, so its dataset card is maintained by hand.
+
+Example: Generate [CIRCL/Vulnerability-CERT-FR](https://huggingface.co/datasets/CIRCL/Vulnerability-CERT-FR) dataset (French security bulletins from CERT-FR, including the earlier CERTA bulletins)
+
+```bash
+vulntrain-dataset-generation --sources certfr_alerte,certfr_avis --repo-id=CIRCL/Vulnerability-CERT-FR
+```
+
+CERT-FR bulletins carry no severity rating of their own, so each bulletin is
+labelled from the CVEs it references. The CVSS score of every referenced CVE
+is read from Valkey (the CNA record, falling back on NVD; v3.1 is preferred,
+then v3.0, v4.0 and v2.0), and the dataset stores the per-CVE scores and
+versions along with their maximum (`cvss_max`, the recommended label) and
+mean (`cvss_mean`). The maximum is used because bulletin summaries describe
+the most severe impact among the referenced vulnerabilities.
+
+Only bulletins referencing 1 to 10 CVEs, with a score for at least 80% of
+them and a non-empty summary, are kept (about 10,400 bulletins, of which
+about 260 alerts). Larger bulletins are mostly vendor patch roll-ups, whose
+maximum score says little about the text. These thresholds are the
+`CERTFR_MAX_CVES` and `CERTFR_MIN_SCORE_COVERAGE` constants in
+`vulntrain/datasets/create_dataset.py`.
+
+Bulletins published before 2016 mostly reference CVEs scored only with
+CVSS v2.0, which has no Critical rating; they are flagged with `v2_only`
+so that trainers can filter them out or apply the CVSS v2 thresholds.
+The dataset card (`vulntrain/cards/dataset_card_certfr.md`) documents the
+fields and the severity distribution: refresh its numbers after a
+regeneration.
 
 ### CWE/patch dataset
 

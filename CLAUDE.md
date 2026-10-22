@@ -69,7 +69,7 @@ vulntrain/
 One-off CWE mapping generation scripts and their input/output JSON files live in `tools/cwe/` (see `tools/cwe/README.md` for the pipeline).
 
 **Key design points**:
-- `VulnExtractor` (in `datasets/create_dataset.py`) connects to a Valkey (Redis-compatible) database holding raw vulnerability JSON and supports sources: `cvelistv5`, `github`, `csaf_redhat`, `csaf_cisco`, `csaf_cisa`, `pysec`, `cnvd`.
+- `VulnExtractor` (in `datasets/create_dataset.py`) connects to a Valkey (Redis-compatible) database holding raw vulnerability JSON and supports sources: `cvelistv5`, `github`, `csaf_redhat`, `csaf_cisco`, `csaf_cisa`, `pysec`, `cnvd`, `fstec`, `certfr_alerte`, `certfr_avis`. CERT-FR bulletins have no severity of their own and are labelled with the highest CVSS score of their linked CVEs (bulletins with 1–10 CVEs only).
 - Trainers map CVSS scores to severity labels and support configurable score strategies (first, latest, mean).
 - All trainers use the Hugging Face `Trainer` API with carbon emissions tracking via CodeCarbon.
 - Distributed multi-GPU training is supported via SLURM (see `etc/run_vulntrain.slurm`).

@@ -1,5 +1,8 @@
 import argparse
+import html
 import json
+import re
+import statistics
 from collections import Counter
 from pathlib import Path
 from typing import Any, Generator
@@ -19,6 +22,15 @@ from vulntrain.utils import (
     strip_markdown,
 )
 
+# CERT-FR bulletins have no severity of their own: they are labelled with the
+# highest CVSS score among their linked CVEs. Bulletins linking many CVEs
+# (vendor patch roll-ups) are skipped, as their maximum says little about the
+# text, as are bulletins where too few linked CVEs have a score.
+CERTFR_MAX_CVES = 10
+CERTFR_MIN_SCORE_COVERAGE = 0.8
+# Version used for a CVE scored with several CVSS versions.
+CERTFR_CVSS_PRIORITY = ["cvss_v3_1", "cvss_v3_0", "cvss_v4_0", "cvss_v2_0"]
+
 
 class VulnExtractor:
     def __init__(self, sources: list[str], nb_rows: int):
@@ -27,6 +39,8 @@ class VulnExtractor:
         self.valkey_client = valkey.Valkey(
             host=valkey_host, port=valkey_port, decode_responses=True
         )
+        self._cve_scores: dict[str, tuple[float, str] | None] = {}
+        self._seen_certfr: set[str] = set()
 
     def get_vulnerability_meta(self, vulnerability_id: str) -> dict[str, Any]:
         _vid = vulnerability_id.lower()
@@ -240,6 +254,80 @@ class VulnExtractor:
             "cve_id": cve_id,
         }
 
+    def _cve_score(self, cve_id: str) -> tuple[float, str] | None:
+        """Return the (score, version) of a CVE, following CERTFR_CVSS_PRIORITY."""
+        if cve_id in self._cve_scores:
+            return self._cve_scores[cve_id]
+
+        result = None
+        vuln = self.get_vulnerability(cve_id)
+        if vuln is not None:
+            scores = extract_cvss_cve(vuln)
+            if not scores:
+                # Fall back on the NVD data stored in the metadata
+                vuln = self.get_vulnerability(cve_id, with_meta=True) or {}
+                scores = extract_cvss_cve(vuln)
+            for version in CERTFR_CVSS_PRIORITY:
+                if scores.get(version) is not None:
+                    result = (float(scores[version]), version)
+                    break
+
+        self._cve_scores[cve_id] = result
+        return result
+
+    @staticmethod
+    def _clean_certfr_text(text: str) -> str:
+        """Strip the HTML and Markdown markup found in CERT-FR summaries."""
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = html.unescape(text)
+        text = re.sub(r"(\*\*|__|`)", "", text)
+        text = re.sub(r"\\([\[\]()*_#\\])", r"\1", text)
+        text = re.sub(r"^\s*#+\s*", "", text, flags=re.MULTILINE)
+        return re.sub(r"\s+", " ", text).strip()
+
+    def extract_certfr(self, vuln: dict[str, Any]) -> dict[str, Any]:
+        reference = vuln.get("reference", "")
+        # Some bulletins are indexed under both an upper and a lower case key
+        if not reference or reference in self._seen_certfr:
+            return {}
+        self._seen_certfr.add(reference)
+
+        cve_ids = sorted({cve["name"] for cve in vuln.get("cves") or []})
+        if not 1 <= len(cve_ids) <= CERTFR_MAX_CVES:
+            return {}
+
+        cvss_scores: list[float | None] = []
+        cvss_versions: list[str | None] = []
+        for cve_id in cve_ids:
+            score = self._cve_score(cve_id)
+            cvss_scores.append(score[0] if score else None)
+            cvss_versions.append(score[1] if score else None)
+
+        scored = [score for score in cvss_scores if score is not None]
+        if not scored or len(scored) / len(cve_ids) < CERTFR_MIN_SCORE_COVERAGE:
+            return {}
+
+        return {
+            "id": reference,
+            "title": (vuln.get("title") or "").strip(),
+            "description": self._clean_certfr_text(vuln.get("summary") or ""),
+            "risks": [
+                risk["description"]
+                for risk in vuln.get("risks") or []
+                if risk.get("description")
+            ],
+            "published": vuln.get("initial_release_date") or "",
+            "cve_ids": cve_ids,
+            "cvss_scores": cvss_scores,
+            "cvss_versions": cvss_versions,
+            "cvss_max": max(scored),
+            "cvss_mean": round(statistics.mean(scored), 2),
+            # CVSS v2 has no Critical rating: let trainers decide what to do
+            "v2_only": all(
+                version == "cvss_v2_0" for version in cvss_versions if version
+            ),
+        }
+
     def __call__(self) -> Generator[dict[str, Any], None, None]:
         count = 0
         for source in self.sources:
@@ -256,6 +344,8 @@ class VulnExtractor:
                     extractor = self.extract_cnvd
                 case "fstec":
                     extractor = self.extract_fstec
+                case "certfr_alerte" | "certfr_avis":
+                    extractor = self.extract_certfr
                 case _:
                     print(f"No parser for this source {source}.")
                     continue
@@ -292,6 +382,8 @@ SOURCE_LABELS = {
     "csaf_cisa": "CSAF CISA",
     "cnvd": "China National Vulnerability Database (CNVD)",
     "fstec": "Russian Federal Service for Technical and Export Control (FSTEC/BDU)",
+    "certfr_alerte": "CERT-FR alerts (Alertes)",
+    "certfr_avis": "CERT-FR advisories (Avis)",
 }
 
 
@@ -302,6 +394,11 @@ def _generate_dataset_card(
     repo_id: str,
 ) -> str | None:
     """Generate a dataset card from a template, populated with actual stats."""
+    # CERT-FR alerts and advisories share one static template
+    if all(source.startswith("certfr_") for source in sources):
+        static_card = Path(__file__).parent.parent / "cards" / "dataset_card_certfr.md"
+        return static_card.read_text() if static_card.exists() else None
+
     # Single-source: use static template if available
     if len(sources) == 1:
         static_card = Path(__file__).parent.parent / "cards" / f"dataset_card_{sources[0]}.md"
@@ -341,7 +438,7 @@ def main():
     parser.add_argument(
         "--sources",
         required=True,
-        help="Comma-separated list of sources (cnvd)",
+        help="Comma-separated list of sources (e.g. cnvd, fstec, certfr_alerte,certfr_avis)",
     )
     parser.add_argument(
         "--repo-id",
