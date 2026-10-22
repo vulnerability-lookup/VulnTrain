@@ -250,7 +250,9 @@ vulntrain-train-severity-certfr-classification --base-model almanach/camembertv2
 ```
 
 The model input is the bulletin title, summary and risks, and the label
-is one of four classes (Low, Medium, High, Critical). `--score` selects
+is one of three classes (Medium, High, Critical): Low bulletins are too
+rare to be learned (about 1% of the dataset) and are labelled Medium,
+unless `--keep-low` is given. `--score` selects
 the bulletin score used as label (`cvss_max`, the default, or
 `cvss_mean`), and `--cvss-v2` how bulletins scored only with CVSS v2 are
 handled: `exclude` (default), `v2-thresholds` (CVSS v2 ratings, no
@@ -259,6 +261,12 @@ deduplicated on the input text and `--class-weights` selects the loss
 (`none`, `sqrt`, `balanced`, `focal`); `--epochs`, `--learning-rate`,
 `--batch-size` and `--max-length` control the schedule, and the best
 checkpoint is selected by macro F1. `--no-push` keeps a run local.
+
+Each run also evaluates a TF-IDF + logistic regression baseline on the
+same split and classes, and logs its macro F1 next to the model's (the
+model card reports it too). CERT-FR summaries are templated, so much of
+the signal is lexical: a fine-tuned model is only worth publishing if it
+beats this baseline.
 
 ### CWE classification
 

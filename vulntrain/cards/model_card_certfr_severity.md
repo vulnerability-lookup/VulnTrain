@@ -17,13 +17,13 @@ pipeline_tag: text-classification
 
 # VLAI: Automated Vulnerability Severity Classification (French Text)
 
-A fine-tuned [{base_model}](https://huggingface.co/{base_model}) model for classifying French security bulletins from [CERT-FR](https://www.cert.ssi.gouv.fr/) into four severity levels: **Low**, **Medium**, **High**, and **Critical**.
+A fine-tuned [{base_model}](https://huggingface.co/{base_model}) model for classifying French security bulletins from [CERT-FR](https://www.cert.ssi.gouv.fr/) into {num_classes} severity levels: {label_list}.
 
 Trained on the [{dataset_id}](https://huggingface.co/datasets/{dataset_id}) dataset as part of the [VulnTrain](https://github.com/vulnerability-lookup/VulnTrain) project.
 
 ## Labels
 
-CERT-FR bulletins carry no severity rating of their own. Each bulletin is labelled from the CVSS scores of the CVEs it references (`{score_field}`), mapped with the CVSS v3 thresholds (Low < 4.0 ≤ Medium < 7.0 ≤ High < 9.0 ≤ Critical); {cvss_v2_description}. The model therefore estimates the severity of the most severe vulnerability described by a bulletin.
+CERT-FR bulletins carry no severity rating of their own. Each bulletin is labelled from the CVSS scores of the CVEs it references (`{score_field}`), mapped with the CVSS v3 thresholds (Low < 4.0 ≤ Medium < 7.0 ≤ High < 9.0 ≤ Critical); {cvss_v2_description}. {low_description} The model therefore estimates the severity of the most severe vulnerability described by a bulletin.
 
 The input text is the bulletin title, its summary, and the list of risks identified by CERT-FR.
 
@@ -33,17 +33,16 @@ Evaluated on a **deduplicated test set** ({test_samples} samples) where no input
 
 | Class    | Precision | Recall | F1-score | Support |
 |----------|-----------|--------|----------|---------|
-| Low      | {Low_precision:.4f}      | {Low_recall:.4f} | {Low_f1:.4f}      | {Low_support}      |
-| Medium   | {Medium_precision:.4f}   | {Medium_recall:.4f} | {Medium_f1:.4f}   | {Medium_support}   |
-| High     | {High_precision:.4f}     | {High_recall:.4f} | {High_f1:.4f}     | {High_support}     |
-| Critical | {Critical_precision:.4f} | {Critical_recall:.4f} | {Critical_f1:.4f} | {Critical_support} |
+{class_table}
 
 - **Overall accuracy**: {accuracy:.2%}
 - **Macro F1**: {f1_macro:.4f}
 
+For comparison, a TF-IDF + logistic regression baseline trained on the same split reaches an accuracy of {baseline_accuracy:.2%} and a macro F1 of {baseline_f1_macro:.4f}.
+
 ### Class distribution
 
-The dataset is imbalanced: Low ({Low_pct:.1f}%), Medium ({Medium_pct:.1f}%), High ({High_pct:.1f}%), Critical ({Critical_pct:.1f}%).
+The test set is imbalanced: {class_distribution}.
 
 ## Usage
 
@@ -64,7 +63,8 @@ print(result)
 
 ## Known limitations
 
-- **Low severity**: Low-severity bulletins are rare (about 1–2% of the dataset), so this class is poorly learned and its metrics are computed on few samples.
+- **Low severity**: Low-severity bulletins are rare (about 1% of the dataset) and are not learned reliably.
+- **High vs. Critical**: many bulletins score just below or just above 9.0 (8.8 and 9.8 are the most frequent scores), a difference the bulletin text rarely reflects.
 - **Bulletin-level labels**: a bulletin covering several vulnerabilities is labelled with the score of its referenced CVEs, not with an assessment by CERT-FR. Bulletins referencing more than 10 CVEs are not part of the dataset.
 
 ## Training details

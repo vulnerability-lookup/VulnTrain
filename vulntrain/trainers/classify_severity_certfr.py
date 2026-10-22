@@ -10,7 +10,9 @@ import numpy as np
 import torch
 from codecarbon import EmissionsTracker
 from datasets import Dataset, DatasetDict, concatenate_datasets, load_dataset
-from sklearn.metrics import classification_report, f1_score
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, classification_report, f1_score
 from sklearn.utils.class_weight import compute_class_weight
 from transformers import (
     AutoModelForSequenceClassification,
@@ -31,49 +33,54 @@ from vulntrain.utils import clamp_tokenizer_max_length, push_emissions_report
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-SEVERITY_MAPPING = {"Low": 0, "Medium": 1, "High": 2, "Critical": 3}
-ID2LABEL = {v: k for k, v in SEVERITY_MAPPING.items()}
+ALL_LABELS = ["Low", "Medium", "High", "Critical"]
 
 
-def compute_metrics(eval_pred):
-    """Compute accuracy and per-class precision/recall/F1."""
+def make_compute_metrics(severity_mapping: dict[str, int]):
+    """Return a metrics function reporting accuracy and per-class precision/recall/F1."""
     accuracy = evaluate.load("accuracy")
-    logits, labels = eval_pred
-    predictions = np.argmax(logits, axis=-1)
+    label_names = list(severity_mapping)
 
-    acc = accuracy.compute(predictions=predictions, references=labels)
-    macro_f1 = f1_score(labels, predictions, average="macro", zero_division=0)
+    def compute_metrics(eval_pred):
+        logits, labels = eval_pred
+        predictions = np.argmax(logits, axis=-1)
 
-    report = classification_report(
-        labels,
-        predictions,
-        labels=list(range(len(SEVERITY_MAPPING))),
-        target_names=[ID2LABEL[i] for i in range(len(SEVERITY_MAPPING))],
-        output_dict=True,
-        zero_division=0,
-    )
+        acc = accuracy.compute(predictions=predictions, references=labels)
+        macro_f1 = f1_score(labels, predictions, average="macro", zero_division=0)
 
-    metrics = {**acc, "f1_macro": macro_f1}
-    for label_name in SEVERITY_MAPPING:
-        if label_name in report:
+        report = classification_report(
+            labels,
+            predictions,
+            labels=list(range(len(label_names))),
+            target_names=label_names,
+            output_dict=True,
+            zero_division=0,
+        )
+
+        metrics = {**acc, "f1_macro": macro_f1}
+        for label_name in label_names:
             metrics[f"{label_name}_precision"] = report[label_name]["precision"]
             metrics[f"{label_name}_recall"] = report[label_name]["recall"]
             metrics[f"{label_name}_f1"] = report[label_name]["f1-score"]
 
-    return metrics
+        return metrics
+
+    return compute_metrics
 
 
-def score_to_severity(score: float, v2_thresholds: bool = False) -> str:
+def score_to_severity(
+    score: float, v2_thresholds: bool = False, keep_low: bool = True
+) -> str:
     """Map a CVSS score to a severity label.
 
     CVSS v2 has no Critical rating: with ``v2_thresholds`` every score of 7.0
-    or more is High.
+    or more is High. Without ``keep_low``, Low scores are labelled Medium.
     """
     if score >= 9.0 and not v2_thresholds:
         return "Critical"
     if score >= 7.0:
         return "High"
-    if score >= 4.0:
+    if score >= 4.0 or not keep_low:
         return "Medium"
     return "Low"
 
@@ -87,14 +94,18 @@ def build_text(example: dict[str, Any]) -> str:
 
 
 def prepare_dataset(
-    dataset: Dataset, score_field: str = "cvss_max", cvss_v2: str = "exclude"
+    dataset: Dataset,
+    score_field: str = "cvss_max",
+    cvss_v2: str = "exclude",
+    keep_low: bool = False,
 ) -> Dataset:
     """Filter CERT-FR bulletins, then add the ``text`` and ``severity_label`` columns.
 
     ``cvss_v2`` sets how bulletins scored only with CVSS v2 (``v2_only``) are
     handled: ``exclude`` drops them, ``v2-thresholds`` labels them with the
     CVSS v2 ratings (no Critical) and ``v3-thresholds`` treats them like the
-    other bulletins.
+    other bulletins. Low bulletins are too rare to be learned (about 1% of
+    the dataset): unless ``keep_low`` is set, they are labelled Medium.
     """
     dataset = dataset.filter(lambda ex: ex[score_field] is not None)
     if cvss_v2 == "exclude":
@@ -104,10 +115,44 @@ def prepare_dataset(
         v2_thresholds = cvss_v2 == "v2-thresholds" and example["v2_only"]
         return {
             "text": build_text(example),
-            "severity_label": score_to_severity(example[score_field], v2_thresholds),
+            "severity_label": score_to_severity(
+                example[score_field], v2_thresholds, keep_low
+            ),
         }
 
     return dataset.map(add_columns)
+
+
+def tfidf_baseline(
+    dataset: DatasetDict, label_names: list[str], balanced: bool
+) -> dict[str, Any]:
+    """Evaluate a TF-IDF + logistic regression baseline on the same split.
+
+    A fine-tuned model has to beat this baseline to be worth publishing:
+    CERT-FR summaries are templated, so much of the signal is lexical.
+    """
+    vectorizer = TfidfVectorizer(ngram_range=(1, 2), min_df=2, sublinear_tf=True)
+    x_train = vectorizer.fit_transform(dataset["train"]["text"])
+    x_test = vectorizer.transform(dataset["test"]["text"])
+    classifier = LogisticRegression(
+        max_iter=3000, C=4, class_weight="balanced" if balanced else None
+    )
+    classifier.fit(x_train, dataset["train"]["severity_label"])
+    predictions = classifier.predict(x_test)
+    labels = dataset["test"]["severity_label"]
+
+    per_class = f1_score(
+        labels, predictions, labels=label_names, average=None, zero_division=0
+    )
+    return {
+        "accuracy": float(accuracy_score(labels, predictions)),
+        "f1_macro": float(
+            f1_score(
+                labels, predictions, labels=label_names, average="macro", zero_division=0
+            )
+        ),
+        **{f"{name}_f1": float(score) for name, score in zip(label_names, per_class)},
+    }
 
 
 def train(
@@ -118,6 +163,7 @@ def train(
     class_weights_mode="none",
     score_field="cvss_max",
     cvss_v2="exclude",
+    keep_low=False,
     num_epochs=5,
     learning_rate=3e-5,
     batch_size=16,
@@ -135,7 +181,11 @@ def train(
     else:
         combined = dataset
 
-    combined = prepare_dataset(combined, score_field=score_field, cvss_v2=cvss_v2)
+    combined = prepare_dataset(
+        combined, score_field=score_field, cvss_v2=cvss_v2, keep_low=keep_low
+    )
+    label_names = ALL_LABELS if keep_low else ALL_LABELS[1:]
+    severity_mapping = {label: i for i, label in enumerate(label_names)}
 
     if len(combined) == 0:
         raise ValueError(
@@ -149,17 +199,24 @@ def train(
     label_counter = Counter(dataset["train"]["severity_label"])
     logger.info(f"Label distribution after filtering: {label_counter}")
 
+    baselines = {
+        "uniform": tfidf_baseline(dataset, label_names, balanced=False),
+        "balanced": tfidf_baseline(dataset, label_names, balanced=True),
+    }
+    for name, baseline in baselines.items():
+        logger.info(f"TF-IDF baseline ({name} class weights): {baseline}")
+
     # Compute class weights for the training set
     class_weights = None
     if class_weights_mode in ("sqrt", "balanced", "focal"):
         all_labels = np.array(
-            [SEVERITY_MAPPING[label] for label in dataset["train"]["severity_label"]]
+            [severity_mapping[label] for label in dataset["train"]["severity_label"]]
         )
         present_classes = np.unique(all_labels)
         weights = compute_class_weight(
             class_weight="balanced", classes=present_classes, y=all_labels
         )
-        class_weights_array = np.ones(len(SEVERITY_MAPPING), dtype=np.float32)
+        class_weights_array = np.ones(len(severity_mapping), dtype=np.float32)
         for cls, w in zip(present_classes, weights):
             if class_weights_mode == "sqrt":
                 class_weights_array[cls] = np.sqrt(w)
@@ -168,7 +225,7 @@ def train(
         class_weights = torch.tensor(class_weights_array, dtype=torch.float)
         logger.info(
             f"Class weights ({class_weights_mode}): "
-            f"{dict(zip(SEVERITY_MAPPING.keys(), class_weights_array))}"
+            f"{dict(zip(severity_mapping.keys(), class_weights_array))}"
         )
     else:
         logger.info("Class weights: disabled (uniform loss)")
@@ -184,7 +241,7 @@ def train(
             max_length=max_length,
         )
         tokenized["labels"] = [
-            SEVERITY_MAPPING[label] for label in examples["severity_label"]
+            severity_mapping[label] for label in examples["severity_label"]
         ]
         return tokenized
 
@@ -196,9 +253,9 @@ def train(
 
     model = AutoModelForSequenceClassification.from_pretrained(
         base_model,
-        num_labels=len(SEVERITY_MAPPING),
-        id2label=ID2LABEL,
-        label2id=SEVERITY_MAPPING,
+        num_labels=len(severity_mapping),
+        id2label={i: label for label, i in severity_mapping.items()},
+        label2id=severity_mapping,
     )
 
     training_args = TrainingArguments(
@@ -225,7 +282,7 @@ def train(
         train_dataset=tokenized_datasets["train"],
         eval_dataset=tokenized_datasets["test"],
         data_collator=data_collator,
-        compute_metrics=compute_metrics,
+        compute_metrics=make_compute_metrics(severity_mapping),
     )
 
     if class_weights_mode == "focal":
@@ -253,6 +310,11 @@ def train(
 
     eval_results = trainer.evaluate()
     logger.info(f"Evaluation results: {eval_results}")
+    for name, baseline in baselines.items():
+        logger.info(
+            f"Macro F1: {eval_results.get('eval_f1_macro', 0):.4f} (model) vs "
+            f"{baseline['f1_macro']:.4f} (TF-IDF baseline, {name} class weights)"
+        )
 
     if not push:
         return
@@ -267,7 +329,7 @@ def train(
         return
 
     # Generate and push model card with actual eval metrics
-    test_labels = [SEVERITY_MAPPING[label] for label in dataset["test"]["severity_label"]]
+    test_labels = [severity_mapping[label] for label in dataset["test"]["severity_label"]]
     test_samples = len(test_labels)
     label_counts = Counter(test_labels)
 
@@ -298,13 +360,31 @@ def train(
         "num_epochs": int(training_args.num_train_epochs),
     }
 
-    for label_name, label_id in SEVERITY_MAPPING.items():
+    class_rows = []
+    class_shares = []
+    for label_name, label_id in severity_mapping.items():
         count = label_counts.get(label_id, 0)
-        template_vars[f"{label_name}_precision"] = eval_results.get(f"eval_{label_name}_precision", 0)
-        template_vars[f"{label_name}_recall"] = eval_results.get(f"eval_{label_name}_recall", 0)
-        template_vars[f"{label_name}_f1"] = eval_results.get(f"eval_{label_name}_f1", 0)
-        template_vars[f"{label_name}_support"] = f"{count:,}"
-        template_vars[f"{label_name}_pct"] = 100 * count / test_samples if test_samples else 0
+        class_rows.append(
+            f"| {label_name} "
+            f"| {eval_results.get(f'eval_{label_name}_precision', 0):.4f} "
+            f"| {eval_results.get(f'eval_{label_name}_recall', 0):.4f} "
+            f"| {eval_results.get(f'eval_{label_name}_f1', 0):.4f} "
+            f"| {count:,} |"
+        )
+        share = 100 * count / test_samples if test_samples else 0
+        class_shares.append(f"{label_name} ({share:.1f}%)")
+    template_vars["class_table"] = "\n".join(class_rows)
+    template_vars["class_distribution"] = ", ".join(class_shares)
+    template_vars["num_classes"] = {3: "three", 4: "four"}[len(label_names)]
+    template_vars["label_list"] = ", ".join(f"**{name}**" for name in label_names)
+    template_vars["low_description"] = (
+        "Low is kept as a separate class."
+        if keep_low
+        else "Low-severity bulletins, too rare to be learned (about 1% of the dataset), are labelled Medium."
+    )
+    best_baseline = max(baselines.values(), key=lambda baseline: baseline["f1_macro"])
+    template_vars["baseline_accuracy"] = best_baseline["accuracy"]
+    template_vars["baseline_f1_macro"] = best_baseline["f1_macro"]
 
     model_card_template = Path(__file__).parent.parent / "cards" / "model_card_certfr_severity.md"
     if model_card_template.exists():
@@ -367,6 +447,13 @@ def main():
         help="Handling of bulletins scored only with CVSS v2: exclude them (default), label them with the CVSS v2 ratings (no Critical), or with the CVSS v3 thresholds.",
     )
     parser.add_argument(
+        "--keep-low",
+        dest="keep_low",
+        action="store_true",
+        default=False,
+        help="Keep Low as a separate class instead of labelling Low bulletins Medium.",
+    )
+    parser.add_argument(
         "--class-weights",
         dest="class_weights_mode",
         default="none",
@@ -418,6 +505,7 @@ def main():
         class_weights_mode=args.class_weights_mode,
         score_field=args.score_field,
         cvss_v2=args.cvss_v2,
+        keep_low=args.keep_low,
         num_epochs=args.epochs,
         learning_rate=args.learning_rate,
         batch_size=args.batch_size,
