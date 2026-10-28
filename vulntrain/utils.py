@@ -1,6 +1,6 @@
 import json
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import cvss
 from markdown_it import MarkdownIt
@@ -8,6 +8,15 @@ from nltk.tokenize import sent_tokenize
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
+
+# CVSS v4.0 has a single score field, and producers fill it differently: some
+# give the base score (CVSS-B), others the score of the full vector including
+# the threat metric Exploit Maturity (CVSS-BT, e.g. NVD). cvss.CVSS4().base_score
+# scores the full vector. To give every source the same reading, all v4.0
+# scores are computed from the vector by cvss4_score():
+# True: base metrics only (CVSS-B); False: the full vector as published.
+CVSS4_BASE_ONLY = True
+CVSS4_BASE_METRICS = ("AV", "AC", "AT", "PR", "UI", "VC", "VI", "VA", "SC", "SI", "SA")
 
 
 def sentences(text, num_sentences=5) -> str:
@@ -25,14 +34,45 @@ def format_cvss_version(version: str) -> str:
     return f"cvss_v{version.replace('.', '_')}".lower()
 
 
+def cvss4_base_vector(vector: str) -> str:
+    """Reduce a CVSS v4.0 vector to its base metrics (CVSS-B)."""
+    prefix, _, metrics = vector.strip().partition("/")
+    base = [
+        metric
+        for metric in metrics.split("/")
+        if metric.split(":", 1)[0] in CVSS4_BASE_METRICS
+    ]
+    return "/".join([prefix, *base])
+
+
+def cvss4_score(vector: str) -> float:
+    """Score a CVSS v4.0 vector with the reading set by CVSS4_BASE_ONLY."""
+    if CVSS4_BASE_ONLY:
+        vector = cvss4_base_vector(vector)
+    return float(cvss.CVSS4(vector).base_score)
+
+
+def cvss_metric_score(metric: dict[str, Any]) -> Any:
+    """Score of a CVSS block of a CVE or NVD record.
+
+    v4.0 blocks are scored from their vector with cvss4_score(), like the
+    advisories, instead of taking the ``baseScore`` field as published.
+    """
+    if str(metric.get("version")) == "4.0" and metric.get("vectorString"):
+        try:
+            return cvss4_score(metric["vectorString"])
+        except Exception:
+            pass
+    return metric["baseScore"]
+
+
 def cvss_base_score(vector: str, version: str) -> str:
     """Returns the base code from a CVSS vector."""
     if version.lower() in ["cvss_v2_0", "cvss_v2"]:
         c = cvss.CVSS2(vector)
         return ", ".join([str(score) for score in c.scores()[:1]])
     elif version.lower() in ["cvss_v4_0", "cvss_v4"]:
-        c = cvss.CVSS4(vector)
-        return str(c.base_score)
+        return str(cvss4_score(vector))
     elif version.lower() in ["cvss_v3", "cvss_v3_0", "cvss_v3_1"]:
         c = cvss.CVSS3(vector)
         return ", ".join(
@@ -102,9 +142,9 @@ def extract_cvss_cve(data) -> dict[str, float]:
     for metric in data.get("containers", {}).get("cna", {}).get("metrics", []):
         for key in metric:
             if key.startswith("cvssV") and "baseScore" in metric[key]:
-                cvss_scores[format_cvss_version(metric[key]["version"])] = metric[key][
-                    "baseScore"
-                ]
+                cvss_scores[format_cvss_version(metric[key]["version"])] = (
+                    cvss_metric_score(metric[key])
+                )
 
     # If no CVSS found, check vulnerability-lookup:meta (for embedded NVD JSON)
     if not cvss_scores:
@@ -119,7 +159,7 @@ def extract_cvss_cve(data) -> dict[str, float]:
                         if "cvssData" in key and "baseScore" in key["cvssData"]:
                             cvss_scores[
                                 format_cvss_version(key["cvssData"]["version"])
-                            ] = key["cvssData"]["baseScore"]
+                            ] = cvss_metric_score(key["cvssData"])
             except json.JSONDecodeError:
                 pass  # Ignore invalid JSON
 
