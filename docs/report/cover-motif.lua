@@ -3,9 +3,9 @@
 -- colour (80% train, 10% validation, 10% test). Deterministic (fixed seed).
 math.randomseed(42)
 
-local cols, rows = 15, 7
+local cols, rows = 15, 6
 local size, gap = 0.42, 0.2
-local x0, y0 = 9.6, 21.9
+local x0, y0 = 9.6, 22.7
 
 local function pick()
   local r = math.random()

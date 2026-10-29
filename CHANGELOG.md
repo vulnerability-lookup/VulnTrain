@@ -5,7 +5,7 @@
 ### Changes
 
 Train/test leakage and CVSS 4.0 scoring in `CIRCL/vulnerability-scores`,
-reported and fixed by [Christian Bucher](https://github.com/christian140903-sudo).
+reported and fixed by Christian Bucher.
 In revision 34e6a14, 58% of the labelled test rows had a train row with the
 same description, mostly a CVE record and its GitHub advisory.
 

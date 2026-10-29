@@ -25,5 +25,3 @@ has a train twin, to measure a model's accuracy on seen and unseen rows.
 Revisions built before the group-aware split have no `aliases` column; pass an
 alias file with `--aliases` (`id<TAB>alias,alias` per line) to check aliases
 too.
-
-Contributed by [Christian Bucher](https://github.com/christian140903-sudo).
