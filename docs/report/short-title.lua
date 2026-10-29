@@ -1,7 +1,7 @@
 -- Prepare the Markdown report for the PDF: the H1 heading and the author
 -- line that follows it are dropped (the title page shows the metadata fields
--- "short-title" and "author" instead, as the H1 is too long for the title
--- page and the running header), and every other heading moves up one level
+-- "short-title" and "author" instead, and the running header shows
+-- "header-left"), and every other heading moves up one level
 -- so that "##" sections are numbered 1, 2, 3...
 function Pandoc(doc)
   local blocks = {}
