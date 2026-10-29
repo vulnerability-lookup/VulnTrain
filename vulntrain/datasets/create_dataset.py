@@ -83,6 +83,9 @@ class VulnExtractor:
                 yield vuln
 
     def extract_cve(self, vuln: dict[str, Any]) -> dict[str, Any]:
+        # Rejected CVE IDs only carry a boilerplate "Rejected reason" text.
+        if vuln["cveMetadata"].get("state") == "REJECTED":
+            return {}
         vuln_id = vuln["cveMetadata"]["cveId"]
         vuln_title = vuln["containers"]["cna"].get("title", "")
         vuln_description = next(
