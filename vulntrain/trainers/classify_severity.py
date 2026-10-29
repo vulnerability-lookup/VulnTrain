@@ -48,6 +48,7 @@ def compute_metrics(eval_pred):
     report = classification_report(
         labels,
         predictions,
+        labels=list(range(len(SEVERITY_MAPPING))),
         target_names=[ID2LABEL[i] for i in range(len(SEVERITY_MAPPING))],
         output_dict=True,
         zero_division=0,
