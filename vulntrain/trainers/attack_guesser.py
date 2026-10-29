@@ -244,7 +244,7 @@ def build_label_vocabulary(
 def train(
     base_model: str,
     dataset_id: str,
-    repo_id: str,
+    repo_id: str | None,
     model_save_dir: str,
     min_examples: int = 5,
     keep_subtechniques: bool = False,
@@ -605,7 +605,7 @@ def train(
         json.dump(metrics, f, indent=4)
     logger.info(f"Evaluation metrics: {metrics}")
 
-    if push:
+    if push and repo_id:
         if tactic_aux is not None:
             # trainer.model is the training-time wrapper; push the
             # standard classifier saved above instead.
@@ -643,8 +643,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--repo-id",
-        required=True,
-        help="Hugging Face Hub repo ID to push the model to.",
+        default=None,
+        help="Hugging Face Hub repo ID to push the model to. Required unless "
+        "--no-push is set.",
     )
     parser.add_argument(
         "--model-save-dir",
@@ -797,6 +798,8 @@ def main() -> None:
         help="Do not push the model to the Hugging Face Hub (dry run).",
     )
     args = parser.parse_args()
+    if not args.no_push and not args.repo_id:
+        parser.error("--repo-id is required unless --no-push is set")
 
     for base_model in args.base_model:
         model_name_sanitized = base_model.replace("/", "-")

@@ -193,6 +193,7 @@ def train(
     model_save_dir="./vulnerability-classify",
     class_weights_mode="none",
     push_card=True,
+    push_to_hub=True,
 ):
     dataset = load_dataset(dataset_id)
 
@@ -330,6 +331,9 @@ def train(
         model.save_pretrained(model_save_dir)
         tokenizer.save_pretrained(model_save_dir)
 
+    if not push_to_hub:
+        return
+
     trainer.push_to_hub()
     tokenizer.push_to_hub(repo_id)
 
@@ -419,8 +423,8 @@ def main():
     parser.add_argument(
         "--repo-id",
         dest="repo_id",
-        required=True,
-        help="Repository name to push the model to (include org if needed).",
+        default=None,
+        help="Repository name to push the model to (include org if needed). Required unless --no-push is set.",
     )
     parser.add_argument(
         "--model-save-dir",
@@ -442,8 +446,17 @@ def main():
         default=False,
         help="Skip pushing the model card to Hugging Face Hub.",
     )
+    parser.add_argument(
+        "--no-push",
+        dest="no_push",
+        action="store_true",
+        default=False,
+        help="Disable pushing the model and tokenizer to Hugging Face Hub.",
+    )
 
     args = parser.parse_args()
+    if not args.no_push and not args.repo_id:
+        parser.error("--repo-id is required unless --no-push is set")
 
     dir_path = Path(args.model_save_dir)
     if dir_path.exists() and dir_path.is_dir():
@@ -462,6 +475,7 @@ def main():
         args.model_save_dir,
         class_weights_mode=args.class_weights_mode,
         push_card=not args.no_card,
+        push_to_hub=not args.no_push,
     )
 
 

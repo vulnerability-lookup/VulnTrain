@@ -41,7 +41,11 @@ def get_datasets(dataset_id, tokenizer):
 
 
 def train(
-    base_model, dataset_id, repo_id, model_save_dir="./vulnerability-description"
+    base_model,
+    dataset_id,
+    repo_id,
+    model_save_dir="./vulnerability-description",
+    push_to_hub=True,
 ):
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -107,6 +111,9 @@ def train(
         model.save_pretrained(model_save_dir)
         tokenizer.save_pretrained(model_save_dir)
 
+    if not push_to_hub:
+        return
+
     trainer.push_to_hub()
     tokenizer.push_to_hub(repo_id)
 
@@ -139,8 +146,8 @@ def main():
     parser.add_argument(
         "--repo-id",
         dest="repo_id",
-        required=True,
-        help="The name of the repository you want to push your object to. It should contain your organization name when pushing to a given organization.",
+        default=None,
+        help="The name of the repository you want to push your object to. It should contain your organization name when pushing to a given organization. Required unless --no-push is set.",
     )
     parser.add_argument(
         "--model-save-dir",
@@ -148,8 +155,17 @@ def main():
         default="results",
         help="The path to a directory where the tokenizer and the model will be saved.",
     )
+    parser.add_argument(
+        "--no-push",
+        dest="no_push",
+        action="store_true",
+        default=False,
+        help="Disable pushing the model and tokenizer to Hugging Face Hub.",
+    )
 
     args = parser.parse_args()
+    if not args.no_push and not args.repo_id:
+        parser.error("--repo-id is required unless --no-push is set")
 
     dir_path = Path(args.model_save_dir)
     if dir_path.exists() and dir_path.is_dir():
@@ -161,7 +177,13 @@ def main():
     print(f"Model will be saved to: {args.model_save_dir}")
     print("Starting the training process…")
 
-    train(args.base_model, args.dataset_id, args.repo_id, args.model_save_dir)
+    train(
+        args.base_model,
+        args.dataset_id,
+        args.repo_id,
+        args.model_save_dir,
+        push_to_hub=not args.no_push,
+    )
 
 
 if __name__ == "__main__":

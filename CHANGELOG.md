@@ -25,6 +25,9 @@ same description, mostly a CVE record and its GitHub advisory.
   metrics separately.
 - `compute_metrics` no longer fails when an eval split lacks a severity class.
 - Rejected CVE records are skipped during dataset generation.
+- All trainers accept `--no-push` to train locally without pushing to the
+  Hugging Face Hub (new for the CNVD severity, CWE and description
+  generation trainers); `--repo-id` is then optional.
 - New `tools/dataset/check_split_leakage.py`: reports train/test overlap of a
   dataset revision and can be used as a gate after each rebuild.
 
