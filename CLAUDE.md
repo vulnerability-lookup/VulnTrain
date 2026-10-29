@@ -67,7 +67,7 @@ vulntrain/
 └── utils.py         # CVSS extraction (v2/v3/v4), CPE parsing, markdown stripping
 ```
 
-One-off CWE mapping generation scripts and their input/output JSON files live in `tools/cwe/` (see `tools/cwe/README.md` for the pipeline).
+One-off CWE mapping generation scripts and their input/output JSON files live in `tools/cwe/` (see `tools/cwe/README.md` for the pipeline). `tools/dataset/check_split_leakage.py` checks a published dataset revision for train/test leakage (see `tools/dataset/README.md`).
 
 **Key design points**:
 - `VulnExtractor` (in `datasets/create_dataset.py`) connects to a Valkey (Redis-compatible) database holding raw vulnerability JSON and supports sources: `cvelistv5`, `github`, `csaf_redhat`, `csaf_cisco`, `csaf_cisa`, `pysec`, `cnvd`, `fstec`, `certfr_alerte`, `certfr_avis`. CERT-FR bulletins have no severity of their own and are labelled with the highest CVSS score of their linked CVEs (bulletins with 1–10 CVEs only).

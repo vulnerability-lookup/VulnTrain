@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+### Changes
+
+Train/test leakage and CVSS 4.0 scoring in `CIRCL/vulnerability-scores`,
+reported and fixed by Christian Bucher.
+In revision 34e6a14, 58% of the labelled test rows had a train row with the
+same description, mostly a CVE record and its GitHub advisory.
+
+- **Group-aware split** (`vulntrain-dataset-generation`): rows that share a
+  normalised description, an identifier or an alias are kept in the same
+  split. Groups are assigned by a seeded hash, so a vulnerability keeps its
+  split across rebuilds. New `aliases` column, new `--test-size`,
+  `--validation-size` and `--seed` options, and duplicate CSAF documents are
+  removed.
+- **One CVSS 4.0 reading**: every v4.0 score, CVE records included, is now
+  computed from its vector with base metrics only (CVSS-B, switch
+  `CVSS4_BASE_ONLY`). Before, advisories were scored with Exploit Maturity
+  applied while CVE rows kept the CNA `baseScore`, so the same vulnerability
+  could get two different severity labels.
+- **Validation split**: `vulntrain-train-severity-classification` selects
+  checkpoints on `validation` when the dataset has one and reports test
+  metrics separately.
+- `compute_metrics` no longer fails when an eval split lacks a severity class.
+- Rejected CVE records are skipped during dataset generation.
+- All trainers accept `--no-push` to train locally without pushing to the
+  Hugging Face Hub (new for the CNVD severity, CWE and description
+  generation trainers); `--repo-id` is then optional.
+- New `tools/dataset/check_split_leakage.py`: reports train/test overlap of a
+  dataset revision and can be used as a gate after each rebuild.
+
 ## Release 3.3.0 (2026-09-28)
 
 ### What's New

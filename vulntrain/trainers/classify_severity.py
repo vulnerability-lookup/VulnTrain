@@ -48,6 +48,7 @@ def compute_metrics(eval_pred):
     report = classification_report(
         labels,
         predictions,
+        labels=list(range(len(SEVERITY_MAPPING))),
         target_names=[ID2LABEL[i] for i in range(len(SEVERITY_MAPPING))],
         output_dict=True,
         zero_division=0,
@@ -214,12 +215,18 @@ def train(
         hub_model_id=repo_id,
     )
 
+    # Select the best checkpoint on the validation split when the dataset has
+    # one, so that the test split is only used for the final evaluation.
+    eval_split = "validation" if "validation" in tokenized_datasets else "test"
+    if eval_split == "test":
+        logger.warning("No validation split: checkpoints are selected on test.")
+
     # Create Trainer
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=tokenized_datasets["train"],
-        eval_dataset=tokenized_datasets["test"],
+        eval_dataset=tokenized_datasets[eval_split],
         data_collator=data_collator,
         compute_metrics=compute_metrics,
     )
@@ -244,6 +251,12 @@ def train(
             tracker.stop()
         model.save_pretrained(model_save_dir)
         tokenizer.save_pretrained(model_save_dir)
+
+    if eval_split == "validation":
+        test_metrics = trainer.evaluate(
+            tokenized_datasets["test"], metric_key_prefix="test"
+        )
+        logger.info(f"Test metrics: {test_metrics}")
 
     if push_to_hub:
         trainer.push_to_hub()
@@ -277,8 +290,8 @@ def main():
     parser.add_argument(
         "--repo-id",
         dest="repo_id",
-        required=True,
-        help="The name of the repository you want to push your object to. It should contain your organization name when pushing to a given organization.",
+        default=None,
+        help="The name of the repository you want to push your object to. It should contain your organization name when pushing to a given organization. Required unless --no-push is set.",
     )
     parser.add_argument(
         "--model-save-dir",
@@ -309,6 +322,8 @@ def main():
     )
 
     args = parser.parse_args()
+    if not args.no_push and not args.repo_id:
+        parser.error("--repo-id is required unless --no-push is set")
 
     dir_path = Path(args.model_save_dir)
     if dir_path.exists() and dir_path.is_dir():

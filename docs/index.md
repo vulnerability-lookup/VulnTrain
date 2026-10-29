@@ -15,6 +15,7 @@ attack-techniques-dataset
 attack-biencoder-retrieval
 cnvd-severity-improvements
 cwe-classification-improvements
+vulnerability-scores-leakage-report
 hpc
 ```
 
@@ -81,6 +82,9 @@ validation only need the datasets on the Hub.
 - [CNVD severity improvements](cnvd-severity-improvements.md) and
   [CWE classification improvements](cwe-classification-improvements.md) —
   the reasoning behind the training options of those models.
+- [Improving vulnerability-scores](vulnerability-scores-leakage-report.md) —
+  leakage-free splits and consistent CVSS 4.0 scoring for the severity
+  dataset, and what they mean for the evaluation of the VLAI classifiers.
 - [HPC](hpc.md) — distributed multi-GPU training via SLURM.
 
 ## Citation

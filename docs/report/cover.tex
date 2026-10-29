@@ -1,0 +1,33 @@
+% Title page background of the vulnerability-scores report: the CIRCL
+% background with a motif of dataset rows. Rows are grouped (twins are
+% linked by a bar) and every group has a single colour: train, validation or
+% test, as in the group-aware split. Built by docs/report/build-pdf.sh.
+\documentclass{article}
+\usepackage[paperwidth=210mm,paperheight=297mm,margin=0pt]{geometry}
+\usepackage{tikz}
+\usepackage{fontspec}
+\setmainfont{Source Sans Pro}[Scale=1]
+\pagestyle{empty}
+\begin{document}
+\noindent\begin{tikzpicture}[remember picture,overlay,x=1cm,y=1cm]
+  \node[inner sep=0pt,anchor=south west] at (current page.south west)
+    {\includegraphics[width=\paperwidth,height=\paperheight]{background.pdf}};
+  \begin{scope}[shift={(current page.south west)}]
+    \definecolor{train}{HTML}{3E8EDE}
+    \definecolor{validation}{HTML}{8FD3FF}
+    \definecolor{test}{HTML}{FFFFFF}
+    % Document type, above the title block.
+    \node[anchor=west,text=validation,font=\small\bfseries] at (4,27.0)
+      {\addfontfeatures{LetterSpace=18}TECHNICAL REPORT \textperiodcentered{} VULNTRAIN};
+    % Grid of rows (see cover-motif.lua).
+    \directlua{dofile("cover-motif.lua")}
+    % Legend under the grid, right-aligned with it.
+    \node[anchor=north east,text=white,font=\scriptsize,inner sep=0pt]
+      at (18.88,22.4) {%
+        \textcolor{train}{\rule{6pt}{6pt}}~train\quad
+        \textcolor{validation}{\rule{6pt}{6pt}}~validation\quad
+        \textcolor{test}{\rule{6pt}{6pt}}~test\qquad
+        linked rows never cross the split};
+  \end{scope}
+\end{tikzpicture}
+\end{document}

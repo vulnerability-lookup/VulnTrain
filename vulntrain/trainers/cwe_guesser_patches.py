@@ -117,6 +117,7 @@ def train(
     learning_rate=1e-5,
     batch_size=16,
     max_length=None,
+    push_to_hub=True,
 ):
     dataset = load_dataset(dataset_id)
     dataset = dataset["train"].filter(lambda x: x.get("cwe") and len(x["cwe"]) > 0)
@@ -280,6 +281,9 @@ def train(
     with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=4)
 
+    if not push_to_hub:
+        return
+
     trainer.push_to_hub()
     tokenizer.push_to_hub(repo_id)
 
@@ -305,8 +309,9 @@ def main():
     )
     parser.add_argument(
         "--repo-id",
-        required=True,
-        help="Hugging Face Hub repo ID to push the model to.",
+        default=None,
+        help="Hugging Face Hub repo ID to push the model to. Required unless "
+        "--no-push is set.",
     )
     parser.add_argument(
         "--model-save-dir",
@@ -351,7 +356,16 @@ def main():
         help="Tokenizer truncation length. Defaults to the model's maximum "
         "input length, capped at 8192 tokens.",
     )
+    parser.add_argument(
+        "--no-push",
+        dest="no_push",
+        action="store_true",
+        default=False,
+        help="Disable pushing the model and tokenizer to Hugging Face Hub.",
+    )
     args = parser.parse_args()
+    if not args.no_push and not args.repo_id:
+        parser.error("--repo-id is required unless --no-push is set")
 
     dir_path = Path(args.model_save_dir)
     if dir_path.exists() and dir_path.is_dir():
@@ -390,6 +404,7 @@ def main():
             learning_rate=args.learning_rate,
             batch_size=args.batch_size,
             max_length=args.max_length,
+            push_to_hub=not args.no_push,
         )
 
 

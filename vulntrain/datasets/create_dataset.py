@@ -12,6 +12,7 @@ import valkey
 from datasets import Dataset, DatasetDict
 
 from vulntrain.config import valkey_host, valkey_port
+from vulntrain.datasets.grouping import extract_aliases, group_split_indices
 from vulntrain.utils import (
     extract_cpe,
     extract_cpe_csaf,
@@ -82,6 +83,9 @@ class VulnExtractor:
                 yield vuln
 
     def extract_cve(self, vuln: dict[str, Any]) -> dict[str, Any]:
+        # Rejected CVE IDs only carry a boilerplate "Rejected reason" text.
+        if vuln["cveMetadata"].get("state") == "REJECTED":
+            return {}
         vuln_id = vuln["cveMetadata"]["cveId"]
         vuln_title = vuln["containers"]["cna"].get("title", "")
         vuln_description = next(
@@ -330,6 +334,10 @@ class VulnExtractor:
 
     def __call__(self) -> Generator[dict[str, Any], None, None]:
         count = 0
+        # A document can be listed twice in a source index, e.g. under an upper-
+        # and a lower-case key that get_vulnerability() reads as the same
+        # document (seen for csaf_cisco and csaf_cisa). Keep the first copy.
+        seen: set[tuple[str, str]] = set()
         for source in self.sources:
             match source:
                 case "cvelistv5":
@@ -356,7 +364,16 @@ class VulnExtractor:
                 if not vuln_data.get("description"):
                     continue
 
+                key = (source, str(vuln_data.get("id") or "").lower())
+                if key[1]:
+                    if key in seen:
+                        continue
+                    seen.add(key)
+
                 vuln_data["source"] = source
+                # Set on every row: Dataset.from_list() takes its columns from
+                # the first row only.
+                vuln_data["aliases"] = extract_aliases(vuln, source)
                 yield vuln_data
 
                 count += 1
@@ -430,6 +447,11 @@ def _generate_dataset_card(
         source_table="\n".join(rows),
         train_examples=len(dataset_dict["train"]),
         test_examples=len(dataset_dict["test"]),
+        validation_row=(
+            f"| validation | {len(dataset_dict['validation']):,} |\n"
+            if "validation" in dataset_dict
+            else ""
+        ),
     )
 
 
@@ -456,6 +478,26 @@ def main():
         "--nb-rows", type=int, default=0, help="Number of rows in the dataset"
     )
     parser.add_argument(
+        "--test-size",
+        dest="test_size",
+        type=float,
+        default=0.1,
+        help="Share of vulnerability groups in the test split.",
+    )
+    parser.add_argument(
+        "--validation-size",
+        dest="validation_size",
+        type=float,
+        default=0.0,
+        help="Share of vulnerability groups in a validation split (0: no split).",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Seed of the group split. A group keeps its split across rebuilds.",
+    )
+    parser.add_argument(
         "--no-card",
         dest="no_card",
         action="store_true",
@@ -470,10 +512,16 @@ def main():
     vulns = list(extractor())
 
     dataset = Dataset.from_list(vulns)
-    dataset_dict = dataset.train_test_split(test_size=0.1)
-
+    # Rows sharing a description, an identifier or an alias (e.g. a CVE and its
+    # GitHub advisory) form one group; a group never spans two splits.
+    split_indices = group_split_indices(
+        vulns,
+        test_size=args.test_size,
+        validation_size=args.validation_size,
+        seed=args.seed,
+    )
     dataset_dict = DatasetDict(
-        {"train": dataset_dict["train"], "test": dataset_dict["test"]}
+        {name: dataset.select(indices) for name, indices in split_indices.items()}
     )
     print(dataset_dict)
 
