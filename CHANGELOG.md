@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Release 3.4.0 (2026-10-29)
 
 ### Changes
 
@@ -30,6 +30,10 @@ same description, mostly a CVE record and its GitHub advisory.
   generation trainers); `--repo-id` is then optional.
 - New `tools/dataset/check_split_leakage.py`: reports train/test overlap of a
   dataset revision and can be used as a gate after each rebuild.
+- Technical report on these changes:
+  `docs/vulnerability-scores-leakage-report.md`
+  ([10.5281/zenodo.23760802](https://doi.org/10.5281/zenodo.23760802)).
+  The rebuilt dataset is revision `55a886a` of `CIRCL/vulnerability-scores`.
 
 ## Release 3.3.0 (2026-09-28)
 
