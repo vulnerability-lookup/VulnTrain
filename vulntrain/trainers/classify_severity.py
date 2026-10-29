@@ -290,8 +290,8 @@ def main():
     parser.add_argument(
         "--repo-id",
         dest="repo_id",
-        required=True,
-        help="The name of the repository you want to push your object to. It should contain your organization name when pushing to a given organization.",
+        default=None,
+        help="The name of the repository you want to push your object to. It should contain your organization name when pushing to a given organization. Required unless --no-push is set.",
     )
     parser.add_argument(
         "--model-save-dir",
@@ -322,6 +322,8 @@ def main():
     )
 
     args = parser.parse_args()
+    if not args.no_push and not args.repo_id:
+        parser.error("--repo-id is required unless --no-push is set")
 
     dir_path = Path(args.model_save_dir)
     if dir_path.exists() and dir_path.is_dir():
