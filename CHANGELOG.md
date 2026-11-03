@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Changes
+
+CVSS scores in `CIRCL/Vulnerability-FSTEC`, reported and fixed by Christian
+Bucher. BDU stores its v3 and v4 vectors without the `CVSS:3.x/` /
+`CVSS:4.0/` prefix, the parser rejected them silently, and every published
+row was labelled from CVSS 2.0. Reading them changes 21,458 of the 82,960
+labels (25.9%).
+
+- **FSTEC v3 and v4 vectors are read**: the missing prefix is added and a
+  vector that still cannot be read is reported.
+- **FSTEC v4.0 as CVSS-B**, through `cvss4_score()` like the other sources.
+- **FSTEC `cve_id`** holds the first CVE id of the BDU field of other
+  identifiers (zero-width spaces and typographic dashes removed); the field
+  itself is kept in the new `other_identifiers` column.
+- **No-impact FSTEC vectors** (score 0.0, a BDU placeholder) are treated as
+  missing instead of giving a Low label.
+- **Leakage check**: `tools/dataset/check_split_leakage.py` also reads the
+  `cve_id` and `cve_ids` columns, as the group split does, so it checks FSTEC,
+  CNVD and CERT-FR rows for the same CVE.
+
 ## Release 3.4.0 (2026-10-29)
 
 ### Changes

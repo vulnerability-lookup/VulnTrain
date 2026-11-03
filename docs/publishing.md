@@ -140,10 +140,15 @@ See the [dataset card](https://huggingface.co/datasets/CIRCL/Vulnerability-CNVD)
 Example: Generate [CIRCL/Vulnerability-FSTEC](https://huggingface.co/datasets/CIRCL/Vulnerability-FSTEC) dataset (Russian Federal Service for Technical and Export Control / BDU)
 
 ```bash
-vulntrain-dataset-generation --sources fstec --repo-id=CIRCL/Vulnerability-FSTEC
+vulntrain-dataset-generation --sources fstec --validation-size 0.1 --repo-id=CIRCL/Vulnerability-FSTEC
 ```
 
-The FSTEC dataset extracts CVSS base scores from vector strings (v2.0, v3.0, v4.0) and includes CVE cross-references when available.
+As for `CIRCL/vulnerability-scores`, `--validation-size 0.1` gives the trainer a validation split to select its checkpoint on, and the leakage check applies after each push (it reads `cve_id`, so it also checks FSTEC rows for the same CVE).
+
+The FSTEC dataset extracts CVSS base scores from vector strings (v2.0, v3.0, v4.0; v4.0 as CVSS-B, like the other sources) and includes CVE cross-references when available.
+BDU stores its v3 and v4 vectors without the `CVSS:3.x/` or `CVSS:4.0/` prefix; the prefix is added before scoring, and a vector that still cannot be read is reported with a warning.
+A vector with no impact at all scores 0.0; BDU uses it as a placeholder, so it is treated as missing.
+`cve_id` holds the first CVE id that the BDU record lists among its identifiers in other databases; that field is kept as published in `other_identifiers`.
 No static card template exists for FSTEC, so its dataset card is maintained by hand.
 
 Example: Generate [CIRCL/Vulnerability-CERT-FR](https://huggingface.co/datasets/CIRCL/Vulnerability-CERT-FR) dataset (French security bulletins from CERT-FR, including the earlier CERTA bulletins)

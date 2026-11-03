@@ -8,7 +8,8 @@ They are not part of the installed `vulntrain` package.
 `check_split_leakage.py` reads the parquet files of a dataset revision and
 reports, for each split other than train, how many labelled rows have a
 labelled train row with the same description (lower case, whitespace
-collapsed) or for the same vulnerability (identifier or `aliases` column). It
+collapsed) or for the same vulnerability (identifier, or the `aliases`,
+`cve_id` and `cve_ids` columns that the group split also reads). It
 also counts the groups that span more than one split and the identifiers
 repeated within a source. It only needs `pyarrow` and the standard library.
 
@@ -22,6 +23,6 @@ After a rebuild with the group-aware split, run it with
 splits. `--flags-out` writes one row per test row (no text) marking whether it
 has a train twin, to measure a model's accuracy on seen and unseen rows.
 
-Revisions built before the group-aware split have no `aliases` column; pass an
+Revisions built before the group-aware split have no alias column; pass an
 alias file with `--aliases` (`id<TAB>alias,alias` per line) to check aliases
 too.

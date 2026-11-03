@@ -7,7 +7,8 @@ CIRCL/vulnerability-scores) and reports, for every split other than train:
 * how many rows with a severity label have a labelled train row with the same
   description (lower-cased, whitespace collapsed; also the exact count),
 * how many have a labelled train row for the same vulnerability by identifier
-  or alias (``aliases`` column, or an alias file for older revisions),
+  or alias (``aliases``, ``cve_id`` and ``cve_ids`` columns, the fields the
+  group split reads, or an alias file for older revisions),
 * per source, and the number of description groups / vulnerability groups
   that span more than one split (0 after a group-aware split),
 * identifiers that occur more than once within a source.
@@ -46,6 +47,9 @@ from typing import Any
 import pyarrow.parquet as pq
 
 CVSS_COLUMNS = ("cvss_v4_0", "cvss_v3_1", "cvss_v3_0", "cvss_v2_0")
+# Alias columns, as ALIAS_FIELDS in vulntrain/datasets/grouping.py: FSTEC and
+# CNVD rows name their CVE in cve_id, CERT-FR rows in cve_ids.
+ALIAS_COLUMNS = ("aliases", "cve_id", "cve_ids")
 SPLIT_ORDER = ("train", "validation", "test")
 _WS = re.compile(r"\s+")
 
@@ -124,17 +128,23 @@ def load_rows(
         for path in paths:
             schema = pq.read_schema(path)
             cvss = [name for name in schema.names if name in CVSS_COLUMNS]
-            wanted = ["id", "description", "source", *cvss]
-            if "aliases" in schema.names:
-                wanted.append("aliases")
+            alias_columns = [name for name in ALIAS_COLUMNS if name in schema.names]
+            wanted = ["id", "description", "source", *cvss, *alias_columns]
+            if alias_columns:
                 have_aliases = True
             table = pq.read_table(path, columns=wanted)
             columns = {name: table.column(name).to_pylist() for name in wanted}
             del table
             for i in range(len(columns["id"])):
                 row_id = str(columns["id"][i] or "")
-                if "aliases" in columns:
-                    aliases = list(columns["aliases"][i] or [])
+                if alias_columns:
+                    aliases = []
+                    for name in alias_columns:
+                        value = columns[name][i]
+                        if isinstance(value, str):
+                            aliases.append(value)
+                        elif value:
+                            aliases.extend(str(item) for item in value if item)
                 elif alias_file is not None:
                     aliases = alias_file.get(row_id.upper(), [])
                 else:
