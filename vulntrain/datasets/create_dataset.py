@@ -223,6 +223,11 @@ class VulnExtractor:
         read with cvss4_score(), like every other source (CVSS-B unless
         CVSS4_BASE_ONLY is switched off). A vector that still cannot be read
         is reported instead of being dropped silently.
+
+        Some BDU records store a vector with no impact at all (C:N/I:N/A:N),
+        often in every version, as a placeholder. Its score of 0.0 is treated
+        as missing, so the next version is used, or the row stays unlabelled
+        and the severity trainers drop it, instead of being labelled Low.
         """
         scores: dict[str, float | None] = {}
         vector_fields = {
@@ -247,6 +252,8 @@ class VulnExtractor:
             except Exception as e:
                 vuln_id = vuln.get("Идентификатор")
                 print(f"Warning: unreadable {field} vector in {vuln_id}: {e}")
+                scores[key] = None
+            if scores[key] == 0.0:
                 scores[key] = None
         return scores
 
