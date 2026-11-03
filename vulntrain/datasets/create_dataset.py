@@ -204,18 +204,27 @@ class VulnExtractor:
 
     @staticmethod
     def _parse_fstec_cvss(vuln: dict[str, Any]) -> dict[str, float | None]:
-        """Parse CVSS vector strings from FSTEC records into base scores."""
+        """Parse CVSS vector strings from FSTEC records into base scores.
+
+        The stored BDU v3 and v4 vectors carry no "CVSS:3.x/" or "CVSS:4.0/"
+        prefix, which the cvss library requires, so it is added here (the
+        website restores it the same way in website/web/filters/fstec.py).
+        For the BDU vectors, v3.0 and v3.1 give the same base score. A vector
+        that still cannot be read is reported instead of being dropped silently.
+        """
         scores: dict[str, float | None] = {}
         vector_fields = {
-            "CVSS 2.0": "cvss_v2_0",
-            "CVSS 3.0": "cvss_v3_0",
-            "CVSS 4.0": "cvss_v4_0",
+            "CVSS 2.0": ("cvss_v2_0", ""),
+            "CVSS 3.0": ("cvss_v3_0", "CVSS:3.0/"),
+            "CVSS 4.0": ("cvss_v4_0", "CVSS:4.0/"),
         }
-        for field, key in vector_fields.items():
-            vector = vuln.get(field, "")
+        for field, (key, prefix) in vector_fields.items():
+            vector = str(vuln.get(field) or "").strip()
             if not vector:
                 scores[key] = None
                 continue
+            if prefix and not vector.startswith("CVSS:"):
+                vector = prefix + vector
             try:
                 if field == "CVSS 2.0":
                     scores[key] = float(cvss.CVSS2(vector).scores()[0])
@@ -223,7 +232,9 @@ class VulnExtractor:
                     scores[key] = float(cvss.CVSS3(vector).scores()[0])
                 elif field == "CVSS 4.0":
                     scores[key] = float(cvss.CVSS4(vector).base_score)
-            except Exception:
+            except Exception as e:
+                vuln_id = vuln.get("Идентификатор")
+                print(f"Warning: unreadable {field} vector in {vuln_id}: {e}")
                 scores[key] = None
         return scores
 
