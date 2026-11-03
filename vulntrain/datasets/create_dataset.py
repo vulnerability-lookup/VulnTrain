@@ -3,6 +3,7 @@ import html
 import json
 import re
 import statistics
+import unicodedata
 from collections import Counter
 from pathlib import Path
 from typing import Any, Generator
@@ -32,6 +33,12 @@ CERTFR_MAX_CVES = 10
 CERTFR_MIN_SCORE_COVERAGE = 0.8
 # Version used for a CVE scored with several CVSS versions.
 CERTFR_CVSS_PRIORITY = ["cvss_v3_1", "cvss_v3_0", "cvss_v4_0", "cvss_v2_0"]
+
+# BDU lists the identifiers of a vulnerability in other databases in one field
+# ("CVE-2009-3585, DSA-1944, ID:1400490"). Some CVE ids there contain a format
+# character such as a zero-width space, or a typographic dash.
+_CVE_ID = re.compile(r"CVE-[0-9]{4}-[0-9]{4,}", re.IGNORECASE)
+_DASHES = re.compile(r"[\u2010-\u2015\u2212]")
 
 
 class VulnExtractor:
@@ -186,10 +193,11 @@ class VulnExtractor:
 
         cvss_scores = self._parse_fstec_cvss(vuln)
 
-        # Extract CVE cross-reference
-        cve_id = vuln.get("Идентификаторы других систем описаний уязвимости") or ""
-        if cve_id and not cve_id.startswith("CVE-"):
-            cve_id = ""
+        # Identifiers in other databases, kept as published; the first CVE id
+        # among them is the CVE cross-reference.
+        other_identifiers = str(
+            vuln.get("Идентификаторы других систем описаний уязвимости") or ""
+        ).strip()
 
         return {
             "id": vuln_id,
@@ -200,7 +208,8 @@ class VulnExtractor:
             "cvss_v3_1": cvss_scores.get("cvss_v3_1", None),
             "cvss_v3_0": cvss_scores.get("cvss_v3_0", None),
             "cvss_v2_0": cvss_scores.get("cvss_v2_0", None),
-            "cve_id": cve_id,
+            "cve_id": self._parse_fstec_cve_id(other_identifiers),
+            "other_identifiers": other_identifiers,
         }
 
     @staticmethod
@@ -240,6 +249,13 @@ class VulnExtractor:
                 print(f"Warning: unreadable {field} vector in {vuln_id}: {e}")
                 scores[key] = None
         return scores
+
+    @staticmethod
+    def _parse_fstec_cve_id(identifiers: str) -> str:
+        """Return the first CVE id named in a BDU field of other identifiers."""
+        text = "".join(c for c in identifiers if unicodedata.category(c) != "Cf")
+        match = _CVE_ID.search(_DASHES.sub("-", text))
+        return match.group(0).upper() if match else ""
 
     def extract_cnvd(self, vuln: dict[str, Any]) -> dict[str, Any]:
         vuln_id = vuln.get("number", "")

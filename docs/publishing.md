@@ -144,6 +144,7 @@ vulntrain-dataset-generation --sources fstec --repo-id=CIRCL/Vulnerability-FSTEC
 ```
 
 The FSTEC dataset extracts CVSS base scores from vector strings (v2.0, v3.0, v4.0; v4.0 as CVSS-B, like the other sources) and includes CVE cross-references when available.
+`cve_id` holds the first CVE id that the BDU record lists among its identifiers in other databases; that field is kept as published in `other_identifiers`.
 No static card template exists for FSTEC, so its dataset card is maintained by hand.
 
 Example: Generate [CIRCL/Vulnerability-CERT-FR](https://huggingface.co/datasets/CIRCL/Vulnerability-CERT-FR) dataset (French security bulletins from CERT-FR, including the earlier CERTA bulletins)
