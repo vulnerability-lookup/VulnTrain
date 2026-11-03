@@ -143,7 +143,7 @@ Example: Generate [CIRCL/Vulnerability-FSTEC](https://huggingface.co/datasets/CI
 vulntrain-dataset-generation --sources fstec --repo-id=CIRCL/Vulnerability-FSTEC
 ```
 
-The FSTEC dataset extracts CVSS base scores from vector strings (v2.0, v3.0, v4.0) and includes CVE cross-references when available.
+The FSTEC dataset extracts CVSS base scores from vector strings (v2.0, v3.0, v4.0; v4.0 as CVSS-B, like the other sources) and includes CVE cross-references when available.
 No static card template exists for FSTEC, so its dataset card is maintained by hand.
 
 Example: Generate [CIRCL/Vulnerability-CERT-FR](https://huggingface.co/datasets/CIRCL/Vulnerability-CERT-FR) dataset (French security bulletins from CERT-FR, including the earlier CERTA bulletins)

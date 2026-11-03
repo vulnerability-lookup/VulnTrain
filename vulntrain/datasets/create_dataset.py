@@ -14,6 +14,7 @@ from datasets import Dataset, DatasetDict
 from vulntrain.config import valkey_host, valkey_port
 from vulntrain.datasets.grouping import extract_aliases, group_split_indices
 from vulntrain.utils import (
+    cvss4_score,
     extract_cpe,
     extract_cpe_csaf,
     extract_cvss_cve,
@@ -209,8 +210,10 @@ class VulnExtractor:
         The stored BDU v3 and v4 vectors carry no "CVSS:3.x/" or "CVSS:4.0/"
         prefix, which the cvss library requires, so it is added here (the
         website restores it the same way in website/web/filters/fstec.py).
-        For the BDU vectors, v3.0 and v3.1 give the same base score. A vector
-        that still cannot be read is reported instead of being dropped silently.
+        For the BDU vectors, v3.0 and v3.1 give the same base score. v4.0 is
+        read with cvss4_score(), like every other source (CVSS-B unless
+        CVSS4_BASE_ONLY is switched off). A vector that still cannot be read
+        is reported instead of being dropped silently.
         """
         scores: dict[str, float | None] = {}
         vector_fields = {
@@ -231,7 +234,7 @@ class VulnExtractor:
                 elif field == "CVSS 3.0":
                     scores[key] = float(cvss.CVSS3(vector).scores()[0])
                 elif field == "CVSS 4.0":
-                    scores[key] = float(cvss.CVSS4(vector).base_score)
+                    scores[key] = cvss4_score(vector)
             except Exception as e:
                 vuln_id = vuln.get("Идентификатор")
                 print(f"Warning: unreadable {field} vector in {vuln_id}: {e}")
