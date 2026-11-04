@@ -8,7 +8,7 @@ VulnTrain generates AI datasets and trains models from vulnerability data source
 
 ## Build & Development
 
-**Package manager**: Poetry 2.0+ with Python 3.11–3.14.
+**Package manager**: Poetry 2.0+ with Python 3.12–3.15.
 
 ```bash
 poetry install              # Install dependencies
