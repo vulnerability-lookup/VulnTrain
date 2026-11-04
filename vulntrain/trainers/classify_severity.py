@@ -196,12 +196,20 @@ def train(
         label2id=SEVERITY_MAPPING,  # Mapping labels to indices
     )
 
+    # Large models (ai-forever/ruRoberta-large) can collapse to predicting a
+    # single class at 3e-5 without warmup: on Vulnerability-FSTEC a104085 the
+    # model predicted one class for four of five epochs. They get a lower
+    # learning rate and a warmup; the base-size models keep their settings.
+    large_model = "large" in base_model.lower()
+
     # Define training arguments
     training_args = TrainingArguments(
         output_dir=model_save_dir,
         eval_strategy="epoch",
         save_strategy="epoch",
-        learning_rate=3e-5,
+        learning_rate=1e-5 if large_model else 3e-5,
+        # A float below 1 is a ratio of the total steps.
+        warmup_steps=0.1 if large_model else 0,
         per_device_train_batch_size=8 if "roberta" in base_model else 16,
         per_device_eval_batch_size=8 if "roberta" in base_model else 16,
         num_train_epochs=5,

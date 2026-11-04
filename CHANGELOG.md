@@ -21,6 +21,15 @@ labels (25.9%).
 - **Leakage check**: `tools/dataset/check_split_leakage.py` also reads the
   `cve_id` and `cve_ids` columns, as the group split does, so it checks FSTEC,
   CNVD and CERT-FR rows for the same CVE.
+- **Training of large models**: `vulntrain-train-severity-classification`
+  now trains models whose name contains `large` (`ai-forever/ruRoberta-large`)
+  at a learning rate of 1e-5 with a warmup over the first 10% of the steps.
+  The first retraining of the Russian model on the corrected FSTEC dataset
+  (revision a104085) collapsed at 3e-5 without warmup: it predicted a single
+  class for four of its five epochs and only started to learn in the last
+  one, as the learning rate decayed, reaching 65.4% test accuracy. That model
+  (`00f08f5`) should not be used. `roberta-base` and DistilBERT keep their
+  settings.
 
 ## Release 3.4.0 (2026-10-29)
 
