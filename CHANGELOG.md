@@ -1,14 +1,20 @@
 # Changelog
 
-## Unreleased
+## Release 3.5.0 (2026-11-04)
 
 ### Changes
 
 CVSS scores in `CIRCL/Vulnerability-FSTEC`, reported and fixed by Christian
 Bucher. BDU stores its v3 and v4 vectors without the `CVSS:3.x/` /
 `CVSS:4.0/` prefix, the parser rejected them silently, and every published
-row was labelled from CVSS 2.0. Reading them changes 21,458 of the 82,960
-labels (25.9%).
+row was labelled from CVSS 2.0. Reading them changes 21,457 of the 82,960
+labels of the previous revision (25.9%).
+The dataset is rebuilt as revision a104085 (98,523 rows, group-aware
+80/10/10 split), and the Russian model retrained on it
+(`CIRCL/vulnerability-severity-classification-russian-ruRoberta-large`
+revision 5268240) reaches 69.95% test accuracy, macro F1 0.585. This is not
+comparable with the 74.17% of the previous model, as both the labels and the
+split changed.
 
 - **FSTEC v3 and v4 vectors are read**: the missing prefix is added and a
   vector that still cannot be read is reported.
@@ -30,6 +36,8 @@ labels (25.9%).
   one, as the learning rate decayed, reaching 65.4% test accuracy. That model
   (`00f08f5`) should not be used. `roberta-base` and DistilBERT keep their
   settings.
+- **Python 3.14 and 3.15** are supported (`requires-python = ">=3.12,<3.16"`),
+  and dependencies are updated.
 
 ## Release 3.4.0 (2026-10-29)
 
