@@ -1,5 +1,10 @@
+import csv
 import json
 import re
+import uuid
+from datetime import datetime, timezone
+from importlib import metadata
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import cvss
@@ -302,3 +307,179 @@ def push_emissions_report(model_save_dir: str, repo_id: str) -> bool:
         commit_message="Add CodeCarbon emissions report",
     )
     return True
+
+
+def resolve_dataset_revision(dataset_id: str, revision: str | None = None) -> str | None:
+    """Return the commit of a Hugging Face Hub dataset, to pin and record it.
+
+    ``revision`` is a branch, a tag or a commit; the default branch is used
+    when it is ``None``. Returns ``None`` when ``dataset_id`` is a local path,
+    or when the Hub cannot be reached (offline run on a cached dataset): the
+    commit that is read is then unknown.
+    """
+    if Path(dataset_id).exists():
+        return None
+
+    from huggingface_hub import HfApi
+
+    try:
+        return HfApi().dataset_info(dataset_id, revision=revision).sha
+    except OSError:
+        return None
+
+
+def read_emissions_report(model_save_dir: str) -> dict[str, str] | None:
+    """Return the last run of the CodeCarbon ``emissions.csv`` report, if any."""
+    emissions_file = Path(model_save_dir) / "emissions.csv"
+    if not emissions_file.exists():
+        return None
+    with emissions_file.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    return rows[-1] if rows else None
+
+
+def write_ml_bom(
+    model_save_dir: str,
+    *,
+    repo_id: str | None,
+    base_model: str,
+    dataset_id: str,
+    dataset_revision: str | None,
+    task: str,
+    license_id: str,
+    metrics: list[dict[str, str]],
+    properties: dict[str, Any],
+) -> Path:
+    """Write a CycloneDX 1.7 ML-BOM describing a training run to ``bom.cdx.json``.
+
+    The file records what the run used and measured: the base model, the
+    dataset and its commit, the evaluation metrics, the training options and
+    the energy reported by CodeCarbon. ``metrics`` are CycloneDX performance
+    metrics (``type``, ``value`` and an optional ``slice``); ``properties``
+    maps a property name to its value.
+
+    The file is written in the model directory, which ``trainer.push_to_hub()``
+    uploads when the run pushes. The commit of the model on the Hub is only
+    known after a push, so the model is identified by its name alone.
+    """
+    hub_url = "https://huggingface.co"
+
+    model: dict[str, Any] = {
+        "type": "machine-learning-model",
+        "name": repo_id or Path(model_save_dir).resolve().name,
+        "licenses": [{"license": {"id": license_id}}],
+        "pedigree": {
+            "ancestors": [
+                {
+                    "type": "machine-learning-model",
+                    "name": base_model,
+                    "purl": f"pkg:huggingface/{base_model}",
+                    "externalReferences": [
+                        {"type": "model-card", "url": f"{hub_url}/{base_model}"}
+                    ],
+                }
+            ]
+        },
+    }
+    if repo_id:
+        model["bom-ref"] = model["purl"] = f"pkg:huggingface/{repo_id}"
+        model["externalReferences"] = [
+            {"type": "model-card", "url": f"{hub_url}/{repo_id}"}
+        ]
+
+    components: list[dict[str, Any]] = []
+    if dataset_revision:
+        dataset_ref = f"pkg:huggingface/{dataset_id}@{dataset_revision}"
+        components.append(
+            {
+                "type": "data",
+                "name": dataset_id,
+                "version": dataset_revision,
+                "bom-ref": dataset_ref,
+                "purl": dataset_ref,
+                "externalReferences": [
+                    {
+                        "type": "distribution",
+                        "url": f"{hub_url}/datasets/{dataset_id}/tree/{dataset_revision}",
+                    }
+                ],
+            }
+        )
+        datasets: list[dict[str, Any]] = [{"ref": dataset_ref}]
+    else:
+        # Local path, or commit unknown: describe the dataset in-line.
+        datasets = [{"type": "dataset", "name": dataset_id}]
+
+    model_card: dict[str, Any] = {
+        "modelParameters": {
+            "approach": {"type": "supervised"},
+            "task": task,
+            "datasets": datasets,
+        },
+        "quantitativeAnalysis": {"performanceMetrics": metrics},
+        "properties": [
+            {"name": name, "value": str(value)} for name, value in properties.items()
+        ],
+    }
+
+    emissions = read_emissions_report(model_save_dir)
+    if emissions is not None:
+        energy = {"value": float(emissions["energy_consumed"]), "unit": "kWh"}
+        # The schema requires an energy provider. CodeCarbon only knows where
+        # the run took place, so the source of the energy is left unknown.
+        location = {
+            key: emissions[column]
+            for key, column in (("country", "country_name"), ("region", "region"))
+            if emissions.get(column)
+        }
+        model_card["considerations"] = {
+            "environmentalConsiderations": {
+                "energyConsumptions": [
+                    {
+                        "activity": "fine-tuning",
+                        "energyProviders": [
+                            {
+                                "description": "Electricity at the location of the training run, as reported by CodeCarbon.",
+                                "organization": {"address": location} if location else {},
+                                "energySource": "unknown",
+                                "energyProvided": energy,
+                            }
+                        ],
+                        "activityEnergyCost": energy,
+                        # CodeCarbon reports kilograms of CO2 equivalent.
+                        "co2CostEquivalent": {
+                            "value": float(emissions["emissions"]) / 1000,
+                            "unit": "tCO2eq",
+                        },
+                    }
+                ]
+            }
+        }
+    model["modelCard"] = model_card
+
+    bom: dict[str, Any] = {
+        "$schema": "http://cyclonedx.org/schema/bom-1.7.schema.json",
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.7",
+        "serialNumber": f"urn:uuid:{uuid.uuid4()}",
+        "version": 1,
+        "metadata": {
+            "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "tools": {
+                "components": [
+                    {
+                        "type": "application",
+                        "name": "VulnTrain",
+                        "version": metadata.version("VulnTrain"),
+                    }
+                ]
+            },
+            "component": model,
+        },
+    }
+    if components:
+        bom["components"] = components
+
+    bom_file = Path(model_save_dir) / "bom.cdx.json"
+    bom_file.write_text(json.dumps(bom, indent=2) + "\n")
+    return bom_file
