@@ -27,7 +27,12 @@ from vulntrain.trainers.classify_severity_cnvd import (
     WeightedTrainer,
     deduplicate_split,
 )
-from vulntrain.utils import clamp_tokenizer_max_length, push_emissions_report
+from vulntrain.utils import (
+    clamp_tokenizer_max_length,
+    push_emissions_report,
+    resolve_dataset_revision,
+    write_ml_bom,
+)
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
@@ -170,8 +175,13 @@ def train(
     max_length=512,
     push=True,
     push_card=True,
+    dataset_revision=None,
 ):
-    dataset = load_dataset(dataset_id)
+    # Resolve the commit first and load exactly that one, so the revision
+    # recorded in the ML-BOM is the one the model was trained on.
+    dataset_commit = resolve_dataset_revision(dataset_id, dataset_revision)
+    logger.info(f"Dataset revision: {dataset_commit or 'unknown'}")
+    dataset = load_dataset(dataset_id, revision=dataset_commit or dataset_revision)
 
     if isinstance(dataset, DatasetDict):
         # Recombine pre-split dataset so we can re-split without leakage
@@ -316,6 +326,45 @@ def train(
             f"{baseline['f1_macro']:.4f} (TF-IDF baseline, {name} class weights)"
         )
 
+    # Record what the run used and measured (CycloneDX ML-BOM). The file is in
+    # the model directory, so it is uploaded with the model when the run pushes.
+    metrics = [
+        {"type": "accuracy", "value": str(eval_results["eval_accuracy"])},
+        {"type": "f1 (macro)", "value": str(eval_results["eval_f1_macro"])},
+    ]
+    for label_name in label_names:
+        for metric in ("precision", "recall", "f1"):
+            metrics.append(
+                {
+                    "type": metric,
+                    "value": str(eval_results[f"eval_{label_name}_{metric}"]),
+                    "slice": label_name,
+                }
+            )
+    bom_file = write_ml_bom(
+        model_save_dir,
+        repo_id=repo_id,
+        base_model=base_model,
+        dataset_id=dataset_id,
+        dataset_revision=dataset_commit,
+        task="text-classification",
+        license_id="CC-BY-4.0",
+        metrics=metrics,
+        properties={
+            "cdx:ai-ml:model:hyperparameter:learning_rate": training_args.learning_rate,
+            "cdx:ai-ml:model:hyperparameter:batch_size": training_args.per_device_train_batch_size,
+            "cdx:ai-ml:model:hyperparameter:num_epochs": int(training_args.num_train_epochs),
+            "cdx:ai-ml:model:hyperparameter:weight_decay": training_args.weight_decay,
+            "cdx:ai-ml:model:hyperparameter:max_length": max_length,
+            "vulntrain:training:score": score_field,
+            "vulntrain:training:cvss_v2": cvss_v2,
+            "vulntrain:training:keep_low": keep_low,
+            "vulntrain:training:class_weights": class_weights_mode,
+            "vulntrain:evaluation:test_samples": len(dataset["test"]),
+        },
+    )
+    logger.info(f"ML-BOM written to {bom_file}")
+
     if not push:
         return
 
@@ -421,6 +470,12 @@ def main():
         help="Path of the dataset. Local or Hugging Face Hub.",
     )
     parser.add_argument(
+        "--dataset-revision",
+        dest="dataset_revision",
+        default=None,
+        help="Branch, tag or commit of the dataset on Hugging Face Hub (default: the latest commit of the default branch).",
+    )
+    parser.add_argument(
         "--repo-id",
         dest="repo_id",
         default=None,
@@ -514,6 +569,7 @@ def main():
         max_length=args.max_length,
         push=not args.no_push,
         push_card=not args.no_card,
+        dataset_revision=args.dataset_revision,
     )
 
 
