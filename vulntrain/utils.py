@@ -338,6 +338,27 @@ def read_emissions_report(model_save_dir: str) -> dict[str, str] | None:
     return rows[-1] if rows else None
 
 
+def ml_bom_metrics(
+    results: dict[str, Any], prefix: str, label_names: list[str]
+) -> list[dict[str, str]]:
+    """Turn the results of ``Trainer.evaluate`` into CycloneDX performance metrics.
+
+    ``prefix`` is the metric key prefix of the evaluation (``eval`` or
+    ``test``). Per-class precision, recall and F1 are reported with the class
+    as ``slice``. A metric that was not computed is left out.
+    """
+    metrics = []
+    for metric_type, key in (("accuracy", "accuracy"), ("f1 (macro)", "f1_macro")):
+        if f"{prefix}_{key}" in results:
+            metrics.append({"type": metric_type, "value": str(results[f"{prefix}_{key}"])})
+    for label_name in label_names:
+        for key in ("precision", "recall", "f1"):
+            value = results.get(f"{prefix}_{label_name}_{key}")
+            if value is not None:
+                metrics.append({"type": key, "value": str(value), "slice": label_name})
+    return metrics
+
+
 def write_ml_bom(
     model_save_dir: str,
     *,

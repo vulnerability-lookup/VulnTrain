@@ -1,7 +1,11 @@
 import argparse
 import logging
+import math
 import shutil
+from collections import Counter
+from importlib import metadata
 from pathlib import Path
+from typing import Any
 
 import evaluate
 import numpy as np
@@ -16,7 +20,14 @@ from transformers import (
     TrainingArguments,
 )
 
-from vulntrain.utils import clamp_tokenizer_max_length, push_emissions_report
+from vulntrain.utils import (
+    clamp_tokenizer_max_length,
+    ml_bom_metrics,
+    push_emissions_report,
+    read_emissions_report,
+    resolve_dataset_revision,
+    write_ml_bom,
+)
 
 """
 Automatically classify new vulnerabilities based on their descriptions,
@@ -34,6 +45,16 @@ SEVERITY_MAPPING = {"Low": 0, "Medium": 1, "High": 2, "Critical": 3}
 
 
 ID2LABEL = {v: k for k, v in SEVERITY_MAPPING.items()}
+
+# Model card templates, by base model and dataset. A run with another pair
+# keeps the card that the Trainer generates.
+CARDS_DIR = Path(__file__).parent.parent / "cards"
+CARD_TEMPLATES = {
+    (
+        "roberta-base",
+        "CIRCL/vulnerability-scores",
+    ): "model_card_vulnerability_scores_severity.md",
+}
 
 
 def compute_metrics(eval_pred):
@@ -143,6 +164,161 @@ def map_cvss_to_severity(example, score_strategy="first"):
     return example
 
 
+def build_model_card(
+    template: str,
+    *,
+    base_model: str,
+    dataset_id: str,
+    dataset_commit: str | None,
+    repo_id: str | None,
+    model_revision: str | None,
+    model_save_dir: str,
+    split_rows: dict[str, tuple[int, int]],
+    test_metrics: dict[str, Any],
+    test_labels: list[int],
+    training_args: TrainingArguments,
+    log_history: list[dict[str, Any]],
+) -> str:
+    """Fill a model card template with the values measured by a training run.
+
+    ``split_rows`` maps a split to its number of rows and of labelled rows.
+    ``model_revision`` is the commit of the model on the Hub: it is only known
+    after a push, and the usage example is pinned to it when it is given.
+    """
+    hub_url = "https://huggingface.co"
+    model_name = repo_id or Path(model_save_dir).resolve().name
+
+    if dataset_commit:
+        dataset_url = f"{hub_url}/datasets/{dataset_id}/tree/{dataset_commit}"
+        dataset_revision_text = f"Revision [`{dataset_commit[:7]}`]({dataset_url})"
+        model_index_revision = f"\n      revision: {dataset_commit}"
+    else:
+        dataset_revision_text = "A local copy"
+        model_index_revision = ""
+
+    if model_revision:
+        example_loading = (
+            f'revision = "{model_revision[:7]}"\n'
+            "tokenizer = AutoTokenizer.from_pretrained(model_name, revision=revision)\n"
+            "model = AutoModelForSequenceClassification.from_pretrained(model_name, revision=revision)"
+        )
+    else:
+        example_loading = (
+            "tokenizer = AutoTokenizer.from_pretrained(model_name)\n"
+            "model = AutoModelForSequenceClassification.from_pretrained(model_name)"
+        )
+
+    # Normal approximation of the 95% confidence interval of the accuracy.
+    accuracy = test_metrics["test_accuracy"]
+    test_samples = len(test_labels)
+    margin = 1.96 * math.sqrt(accuracy * (1 - accuracy) / test_samples)
+
+    support = Counter(test_labels)
+    class_rows = []
+    for label_name, label_id in SEVERITY_MAPPING.items():
+        if f"test_{label_name}_f1" not in test_metrics:
+            continue
+        class_rows.append(
+            f"| {label_name} "
+            f"| {test_metrics[f'test_{label_name}_precision']:.4f} "
+            f"| {test_metrics[f'test_{label_name}_recall']:.4f} "
+            f"| {test_metrics[f'test_{label_name}_f1']:.4f} "
+            f"| {support[label_id]:,} |"
+        )
+
+    # One row per validation pass, with the last training loss logged before it.
+    epoch_rows = []
+    best_epoch, best_accuracy, training_loss = None, -1.0, None
+    for entry in log_history:
+        if "loss" in entry:
+            training_loss = entry["loss"]
+        if "eval_loss" not in entry:
+            continue
+        loss = "-" if training_loss is None else f"{training_loss:.4f}"
+        epoch_rows.append(
+            f"| {entry['epoch']:.1f} | {entry['step']} | {loss} "
+            f"| {entry['eval_loss']:.4f} | {entry['eval_accuracy']:.4f} "
+            f"| {entry['eval_f1_macro']:.4f} |"
+        )
+        if entry["eval_accuracy"] > best_accuracy:
+            best_epoch, best_accuracy = entry["epoch"], entry["eval_accuracy"]
+
+    hyperparameters = {
+        "learning_rate": training_args.learning_rate,
+        "train_batch_size": training_args.train_batch_size,
+        "eval_batch_size": training_args.eval_batch_size,
+        "seed": training_args.seed,
+        "optimizer": getattr(training_args.optim, "value", training_args.optim),
+        "lr_scheduler_type": getattr(
+            training_args.lr_scheduler_type, "value", training_args.lr_scheduler_type
+        ),
+        "warmup_steps": training_args.warmup_steps,
+        "weight_decay": training_args.weight_decay,
+        "num_epochs": int(training_args.num_train_epochs),
+    }
+
+    files_url = f"{hub_url}/{repo_id}/blob/main" if repo_id else "."
+    provenance_files = [
+        f"- [`bom.cdx.json`]({files_url}/bom.cdx.json): machine-readable record of the run "
+        "([CycloneDX](https://cyclonedx.org/) ML-BOM): base model, dataset revision, "
+        "metrics, training options and energy use."
+    ]
+    emissions_text = ""
+    emissions = read_emissions_report(model_save_dir)
+    if emissions is not None:
+        minutes = round(float(emissions["duration"]) / 60)
+        hardware = emissions.get("gpu_model") or emissions.get("cpu_model") or "CPU"
+        emissions_text = (
+            f"\nTraining took {minutes // 60} h {minutes % 60} min on {hardware} "
+            f"and used {float(emissions['energy_consumed']):.2f} kWh, "
+            f"for {float(emissions['emissions']):.2f} kg CO₂eq\n"
+            f"(measured with CodeCarbon, see [`emissions.csv`]({files_url}/emissions.csv)).\n"
+        )
+        provenance_files.append(
+            f"- [`emissions.csv`]({files_url}/emissions.csv): energy use and CO₂ "
+            "emissions of the training, measured with "
+            "[CodeCarbon](https://codecarbon.io/)."
+        )
+
+    versions = {
+        "Transformers": "transformers",
+        "Pytorch": "torch",
+        "Datasets": "datasets",
+        "Tokenizers": "tokenizers",
+    }
+
+    return template.format(
+        base_model=base_model,
+        dataset_id=dataset_id,
+        repo_id=model_name,
+        model_name=model_name.split("/")[-1],
+        model_index_revision=model_index_revision,
+        example_loading=example_loading,
+        dataset_revision_text=dataset_revision_text,
+        split_table="\n".join(
+            f"| {split} | {rows:,} | {labelled:,} |"
+            for split, (rows, labelled) in split_rows.items()
+        ),
+        hyperparameters="\n".join(
+            f"- {name}: {value}" for name, value in hyperparameters.items()
+        ),
+        best_epoch="unknown" if best_epoch is None else f"{best_epoch:g}",
+        emissions_text=emissions_text,
+        test_samples=test_samples,
+        accuracy=accuracy,
+        accuracy_low=accuracy - margin,
+        accuracy_high=accuracy + margin,
+        f1_macro=test_metrics["test_f1_macro"],
+        class_table="\n".join(class_rows),
+        epoch_table="\n".join(epoch_rows),
+        framework_versions="\n".join(
+            f"- {name} {metadata.version(package)}" for name, package in versions.items()
+        ),
+        vulntrain_version=metadata.version("VulnTrain"),
+        provenance_files="\n".join(provenance_files),
+    )
+
+
 def train(
     base_model,
     dataset_id,
@@ -151,9 +327,17 @@ def train(
     push_to_hub=True,
     use_cache=False,
     codecarbon=True,
+    dataset_revision=None,
+    push_card=True,
 ):
-    # Load dataset from Hugging Face
-    dataset = load_dataset(dataset_id)
+    # Load dataset from Hugging Face. Resolve the commit first and load exactly
+    # that one, so the revision recorded in the ML-BOM is the one the model was
+    # trained on.
+    dataset_commit = resolve_dataset_revision(dataset_id, dataset_revision)
+    logger.info(f"Dataset revision: {dataset_commit or 'unknown'}")
+    dataset = load_dataset(dataset_id, revision=dataset_commit or dataset_revision)
+
+    raw_rows = {split: len(dataset[split]) for split in dataset}
 
     # Map severity labels
     dataset = dataset.map(map_cvss_to_severity)
@@ -266,12 +450,86 @@ def train(
         )
         logger.info(f"Test metrics: {test_metrics}")
 
+        # Record what the run used and measured (CycloneDX ML-BOM). The file is
+        # in the model directory, so it is uploaded with the model when the run
+        # pushes. It needs metrics from a test split that did not select the
+        # checkpoint, so it is only written for a dataset with a validation split.
+        bom_file = write_ml_bom(
+            model_save_dir,
+            repo_id=repo_id,
+            base_model=base_model,
+            dataset_id=dataset_id,
+            dataset_revision=dataset_commit,
+            task="text-classification",
+            license_id="CC-BY-4.0",
+            metrics=ml_bom_metrics(test_metrics, "test", list(SEVERITY_MAPPING)),
+            properties={
+                "cdx:ai-ml:model:hyperparameter:learning_rate": training_args.learning_rate,
+                "cdx:ai-ml:model:hyperparameter:warmup_steps": training_args.warmup_steps,
+                "cdx:ai-ml:model:hyperparameter:batch_size": training_args.train_batch_size,
+                "cdx:ai-ml:model:hyperparameter:num_epochs": int(training_args.num_train_epochs),
+                "cdx:ai-ml:model:hyperparameter:weight_decay": training_args.weight_decay,
+                "cdx:ai-ml:model:hyperparameter:max_length": tokenizer.model_max_length,
+                "vulntrain:training:score_strategy": "first",
+                "vulntrain:evaluation:test_samples": len(tokenized_datasets["test"]),
+            },
+        )
+        logger.info(f"ML-BOM written to {bom_file}")
+
+    # The model card reports the same test metrics as the ML-BOM.
+    card_path = Path(model_save_dir) / "README.md"
+    template_name = CARD_TEMPLATES.get((base_model, dataset_id))
+    write_card = None
+    if push_card and template_name and eval_split == "validation":
+        template = (CARDS_DIR / template_name).read_text()
+
+        def write_card(model_revision=None):
+            card_path.write_text(
+                build_model_card(
+                    template,
+                    base_model=base_model,
+                    dataset_id=dataset_id,
+                    dataset_commit=dataset_commit,
+                    repo_id=repo_id,
+                    model_revision=model_revision,
+                    model_save_dir=model_save_dir,
+                    split_rows={
+                        split: (raw_rows[split], len(dataset[split]))
+                        for split in raw_rows
+                    },
+                    test_metrics=test_metrics,
+                    test_labels=tokenized_datasets["test"]["labels"],
+                    training_args=training_args,
+                    log_history=trainer.state.log_history,
+                )
+            )
+
+        # Written before any push, so a local run can be reviewed.
+        write_card()
+        logger.info(f"Model card written to {card_path}")
+
     if push_to_hub:
         trainer.push_to_hub()
         tokenizer.push_to_hub(repo_id)
 
         if tracker is not None and push_emissions_report(model_save_dir, repo_id):
             logger.info(f"Emissions report pushed to {repo_id}")
+
+        if write_card is not None:
+            from huggingface_hub import HfApi
+
+            # trainer.push_to_hub() replaced README.md with the card generated
+            # by the Trainer. Write ours again, with the usage example pinned
+            # to the commit that holds the model, and upload it.
+            api = HfApi()
+            write_card(api.model_info(repo_id).sha)
+            api.upload_file(
+                path_or_fileobj=str(card_path),
+                path_in_repo="README.md",
+                repo_id=repo_id,
+                commit_message="Update model card with evaluation metrics",
+            )
+            logger.info(f"Model card pushed to {repo_id}")
 
 
 def main():
@@ -294,6 +552,12 @@ def main():
         dest="dataset_id",
         default="CIRCL/vulnerability-scores",
         help="Path of the dataset. Local dataset or repository on the HF hub.",
+    )
+    parser.add_argument(
+        "--dataset-revision",
+        dest="dataset_revision",
+        default=None,
+        help="Branch, tag or commit of the dataset on the HF hub (default: the latest commit of the default branch).",
     )
     parser.add_argument(
         "--repo-id",
@@ -320,6 +584,13 @@ def main():
         action="store_true",
         default=False,
         help="Disable pushing the model and tokenizer to Hugging Face Hub.",
+    )
+    parser.add_argument(
+        "--no-card",
+        dest="no_card",
+        action="store_true",
+        default=False,
+        help="Keep the model card generated by the Trainer instead of the VulnTrain one.",
     )
     parser.add_argument(
         "--no-cache",
@@ -351,6 +622,8 @@ def main():
         push_to_hub=not args.no_push,
         use_cache=not args.no_cache,
         codecarbon=not args.no_codecarbon,
+        dataset_revision=args.dataset_revision,
+        push_card=not args.no_card,
     )
 
 

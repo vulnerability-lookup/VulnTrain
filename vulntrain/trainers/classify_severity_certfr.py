@@ -29,6 +29,7 @@ from vulntrain.trainers.classify_severity_cnvd import (
 )
 from vulntrain.utils import (
     clamp_tokenizer_max_length,
+    ml_bom_metrics,
     push_emissions_report,
     resolve_dataset_revision,
     write_ml_bom,
@@ -328,19 +329,6 @@ def train(
 
     # Record what the run used and measured (CycloneDX ML-BOM). The file is in
     # the model directory, so it is uploaded with the model when the run pushes.
-    metrics = [
-        {"type": "accuracy", "value": str(eval_results["eval_accuracy"])},
-        {"type": "f1 (macro)", "value": str(eval_results["eval_f1_macro"])},
-    ]
-    for label_name in label_names:
-        for metric in ("precision", "recall", "f1"):
-            metrics.append(
-                {
-                    "type": metric,
-                    "value": str(eval_results[f"eval_{label_name}_{metric}"]),
-                    "slice": label_name,
-                }
-            )
     bom_file = write_ml_bom(
         model_save_dir,
         repo_id=repo_id,
@@ -349,7 +337,7 @@ def train(
         dataset_revision=dataset_commit,
         task="text-classification",
         license_id="CC-BY-4.0",
-        metrics=metrics,
+        metrics=ml_bom_metrics(eval_results, "eval", label_names),
         properties={
             "cdx:ai-ml:model:hyperparameter:learning_rate": training_args.learning_rate,
             "cdx:ai-ml:model:hyperparameter:batch_size": training_args.per_device_train_batch_size,
