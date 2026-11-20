@@ -45,6 +45,9 @@ too: it is the reference, and it wins if the two files ever disagree.
   sections, and mention that a significant part of the change was generated with an AI
   tool. Never tick the box "I have read, understood and tested every change": it is
   the human's own statement, leave it for them.
+- **One summary for tools.** [ai-policy.yaml](ai-policy.yaml) is a machine-readable
+  summary of the rules on AI. When you change these rules, update it too. If the two
+  disagree, CONTRIBUTING.md wins.
 
 ## Project Overview
 
