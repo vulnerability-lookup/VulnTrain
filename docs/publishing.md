@@ -266,7 +266,8 @@ CNVD and CERT-FR); every other model card is maintained by hand.
 `vulntrain-train-severity-classification` and
 `vulntrain-train-severity-certfr-classification` record what a run used
 and measured in `bom.cdx.json`, a [CycloneDX](https://cyclonedx.org/) 1.7
-ML-BOM written in the model directory at the end of the run:
+[ML-BOM](https://cyclonedx.org/capabilities/mlbom/) (Machine Learning Bill of
+Materials) written in the model directory at the end of the run:
 
 - the base model, as the ancestor of the trained model;
 - the dataset and the commit it was read at;
@@ -274,6 +275,9 @@ ML-BOM written in the model directory at the end of the run:
   per class);
 - the training options (learning rate, batch size, epochs, …);
 - the energy use and CO₂ emissions reported by CodeCarbon.
+
+The fields follow the OWASP
+[Authoritative Guide to ML-BOM](https://cyclonedx.org/guides/OWASP_CycloneDX-Authoritative-Guide-to-AI-ML-BOM-en.pdf).
 
 The file is built with the standard library only. It is written for a
 local run too (`--no-push`), and since it is in the model directory it is

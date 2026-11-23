@@ -260,7 +260,8 @@ def build_model_card(
     files_url = f"{hub_url}/{repo_id}/blob/main" if repo_id else "."
     provenance_files = [
         f"- [`bom.cdx.json`]({files_url}/bom.cdx.json): machine-readable record of the run "
-        "([CycloneDX](https://cyclonedx.org/) ML-BOM): base model, dataset revision, "
+        "([CycloneDX ML-BOM](https://cyclonedx.org/capabilities/mlbom/)): "
+        "base model, dataset revision, "
         "metrics, training options and energy use."
     ]
     emissions_text = ""

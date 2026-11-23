@@ -4,7 +4,7 @@
 
 ### What's New
 
-- **Training provenance as a CycloneDX ML-BOM**:
+- **Training provenance as a [CycloneDX ML-BOM](https://cyclonedx.org/capabilities/mlbom/)**:
   `vulntrain-train-severity-classification` and
   `vulntrain-train-severity-certfr-classification` write `bom.cdx.json`
   (CycloneDX 1.7) in the model directory at the end of a run: base model,

@@ -63,6 +63,11 @@ vulntrain-train-severity-classification --base-model roberta-base \
   --repo-id CIRCL/vulnerability-severity-classification-roberta-base
 ```
 
+The severity trainers record what a run used and measured (base model, dataset
+revision, metrics, energy use) in `bom.cdx.json`, a
+[CycloneDX ML-BOM](https://cyclonedx.org/capabilities/mlbom/) saved next to the
+model. See [Training provenance](docs/publishing.md#training-provenance-ml-bom).
+
 **3. Validate** the trained model:
 
 ```bash
