@@ -3,7 +3,7 @@
 [![Latest release](https://img.shields.io/github/release/vulnerability-lookup/VulnTrain.svg?style=flat-square)](https://github.com/vulnerability-lookup/VulnTrain/releases/latest)
 [![License](https://img.shields.io/github/license/vulnerability-lookup/VulnTrain.svg?style=flat-square)](https://www.gnu.org/licenses/gpl-3.0.html)
 [![PyPi version](https://img.shields.io/pypi/v/VulnTrain.svg?style=flat-square)](https://pypi.org/project/VulnTrain)
-
+[![AI use](https://www.saywhichai.org/badge/vulntrain.svg)](https://www.saywhichai.org/projects.html?project=vulntrain)
 
 VulnTrain turns the vulnerability data collected by
 [Vulnerability-Lookup](https://github.com/vulnerability-lookup/vulnerability-lookup)
