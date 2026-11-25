@@ -59,8 +59,8 @@ When in doubt, open an issue to discuss the approach before writing the code.
 ## Use of AI and LLM tools
 
 This project adopts the
-[AI transparency charter](https://github.com/cedricbonhomme/ai-disclosure/blob/main/AI_CHARTER.md)
-1.1.
+[AI transparency charter](https://www.saywhichai.org/charter.html)
+1.3.
 
 The project trains AI models, and AI tools are used in its own development. We do not
 object to AI-assisted contributions, and contributions written without any AI tool
